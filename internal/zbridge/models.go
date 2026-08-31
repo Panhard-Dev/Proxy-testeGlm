@@ -157,10 +157,11 @@ func modelSupportsReasoningEffort(modelID string) bool {
 }
 
 // isValidReasoningEffort validates the accepted reasoning_effort values.
-// Accepted: "high", "max". Any other value is rejected.
+// These mirror the effort dropdown the chat.z.ai web client exposes
+// (Low / High / Max). Any other value is rejected.
 func isValidReasoningEffort(value string) bool {
     switch value {
-    case "high", "max":
+    case "low", "high", "max":
         return true
     default:
         return false

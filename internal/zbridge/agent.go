@@ -19,10 +19,12 @@
 //     replay of long tool histories.
 //
 //   - Modern structures the prompt with explicit XML-like section tags
-//     (<system>, <tools>, <history_summary>, <recent>, <current_task>,
-//     <output_rules>), summarizes older tool exchanges, anchors the latest
-//     user message as the current task, and repeats the output contract at
-//     the very end (recency bias).
+//     (<system>, <tools>, <history_summary>, <current_task>, <recent>,
+//     <current_step>, <output_rules>), summarizes older tool exchanges,
+//     anchors the latest user message as the current task, anchors the
+//     model's next decision on the outcome of its most recent tool call so
+//     open-ended tasks converge instead of looping, and repeats the output
+//     contract at the very end (recency bias).
 //
 //   - Modern parsing is tolerant where legacy was strict:
 //       * markers matched with 2..4 angle brackets per side (models
@@ -170,12 +172,13 @@ func findAgentSpans(text string) []agentSpan {
 // a flat blob of role-tagged text.
 //
 // Structure:
-//   <system>        — compact output contract
-//   <tools>         — available tool definitions
-//   <history>       — older conversation turns (summarized if too long)
-//   <recent>        — recent turns with grouped tool exchanges
-//   <current_task>  — the latest user message (recency anchor)
-//   <output_rules>  — final reminder at the very end (heaviest weight)
+//   <system>          — compact output contract
+//   <tools>           — available tool definitions
+//   <history_summary> — older tool exchanges, summarized
+//   <current_task>    — the latest user message (task anchor)
+//   <recent>          — recent turns with grouped tool exchanges
+//   <current_step>    — evaluate the last tool result; convergence + loop guard
+//   <output_rules>    — final reminder at the very end (heaviest weight)
 
 // agentCallSchema is the exact JSON payload shape required inside a
 // tool-call block. It is stated verbatim in the prompt (and repeated in the
@@ -190,7 +193,7 @@ const agentSystemPrefix = "<system>\n" +
     "REPLY FORMAT \u2014 exactly ONE of:\n" +
     "(A) TOOL CALL: <<<TOOL_CALL>>>" + agentCallSchema + "<<<END_TOOL_CALL>>> \u2014 nothing before or after.\n" +
     "    The JSON object has EXACTLY two keys: \"name\" (the tool to call, spelled exactly as in <tools>) and \"arguments\" (an object with ONLY that tool's parameters).\n" +
-    "(B) FINAL ANSWER: plain text, only when no tool applies.\n" +
+    "(B) FINAL ANSWER: plain text, when the task is complete or no tool applies.\n" +
     "\n" +
     "RULES:\n" +
     "- Never announce plans (\u201cI\u2019ll...\u201d, \u201cLet me...\u201d). Emit the block \u2014 that IS the action.\n" +
@@ -206,7 +209,7 @@ const agentSystemPrefix = "<system>\n" +
 const agentFinalReminder = `<output_rules>
 RESPOND WITH EXACTLY ONE OF:
 1. <<<TOOL_CALL>>>{"name":"<tool_name>","arguments":{...}}<<<END_TOOL_CALL>>> (no fences, no other text)
-2. Plain text final answer (only if no tool applies to this step)
+2. Plain text final answer (when the task is complete or no tool applies to this step)
 The tool-call JSON uses EXACTLY the keys "name" and "arguments" — never a "tool" key, never bare top-level parameters.
 </output_rules>`
 
@@ -507,18 +510,68 @@ func extractToolExchanges(messages []agentMessage) (old []toolExchange, recent [
     return old, recent
 }
 
+// agentLoopGuardExchanges is the number of consecutive tool exchanges after
+// the last user message at which <current_step> escalates from "evaluate
+// whether the task is done" to "produce the final answer now". Open-ended
+// tasks otherwise let the model keep emitting edits forever — the heavy loop
+// observed in the wild (a dozen consecutive Edit calls, ~50k tokens each).
+const agentLoopGuardExchanges = 10
+
+// trailingToolExchanges counts assistant tool-call exchanges after the last
+// user message: the consecutive autonomous steps already taken for the
+// current task without new user input.
+func trailingToolExchanges(messages []agentMessage) int {
+    n := 0
+    for i := len(messages) - 1; i >= 0; i-- {
+        if messages[i].Role == "user" {
+            break
+        }
+        if messages[i].Role == "assistant" && len(messages[i].ToolCalls) > 0 {
+            n++
+        }
+    }
+    return n
+}
+
+// renderCurrentStep renders the <current_step> section: the recency anchor
+// for the model's next decision. It points at the outcome of the most recent
+// tool call (the last <tool_result> in <recent>) and demands a final answer
+// once the result shows the task satisfied, so tool-heavy conversations
+// converge instead of re-working the original request forever. Returns an
+// empty string when the conversation does not end in a tool exchange (the
+// plain <current_task> anchor is then the right one).
+func renderCurrentStep(messages []agentMessage) string {
+    steps := trailingToolExchanges(messages)
+    if steps == 0 {
+        return ""
+    }
+    var b strings.Builder
+    b.WriteString("<current_step>\n")
+    b.WriteString(fmt.Sprintf("The conversation ends with the outcome of your most recent tool call (the last <tool_result> in <recent>). You have made %d consecutive tool call(s) for <current_task> without new user input.\n", steps))
+    b.WriteString("Evaluate the last tool result against <current_task>:\n")
+    b.WriteString("- If the result shows the request satisfied — or the remaining difference cosmetic — give the plain text FINAL ANSWER now.\n")
+    b.WriteString("- Emit another tool call only when the last result reports an error, a failure, or a concrete unmet requirement.\n")
+    b.WriteString("- Never re-attempt a tool call that already succeeded.\n")
+    if steps >= agentLoopGuardExchanges {
+        b.WriteString(fmt.Sprintf("LOOP GUARD: %d consecutive tool calls without user input is too many. You MUST give the final answer now unless the last tool result reports an error.\n", steps))
+    }
+    b.WriteString("</current_step>")
+    return b.String()
+}
+
 // buildAgentPrompt constructs the prompt sent to Z.AI. The prompt is
 // structured with explicit XML-like section tags so the model can clearly
 // distinguish instructions, tools, history, and the current task.
 //
 // Structure:
 //
-//	<system>             — compact output contract
-//	<tools>              — available tool definitions
-//	<history_summary>    — summarized older turns (if conversation is long)
-//	<recent>             — recent turns in full detail with grouped tool exchanges
-//	<current_task>       — the latest user message (recency anchor)
-//	<output_rules>       — final reminder at the very end (heaviest weight)
+//	<system>          — compact output contract
+//	 — available tool definitions
+//	<history_summary> — summarized older turns (if conversation is long)
+//	<current_task>    — the latest user message (task anchor, before history)
+//	<recent>          — recent turns in full detail with grouped tool exchanges
+//	<current_step>    — evaluate the last tool result; convergence + loop guard
+//	<output_rules>    — final reminder at the very end (heaviest weight)
 func buildAgentPrompt(messages []agentMessage, tools []openAITool) string {
     var b strings.Builder
 
@@ -539,16 +592,11 @@ func buildAgentPrompt(messages []agentMessage, tools []openAITool) string {
         b.WriteString("\n\n")
     }
 
-    // 4. Render recent conversation turns with grouped tool exchanges.
-    if len(recentMessages) > 0 {
-        b.WriteString("<recent>\n")
-        renderRecentConversation(&b, recentMessages)
-        b.WriteString("</recent>\n\n")
-    }
-
-    // 5. Extract the LAST user message as the explicit current task.
-    //    This is the most important change: the model knows exactly which
-    //    message to respond to.
+    // 4. Anchor the task BEFORE the history. Ending the prompt with the
+    //    original request (as earlier versions did) re-opens the task on
+    //    every turn: with a screenshot attached, open-ended requests
+    //    ("make it look nicer") loop the model into endless edits. The
+    //    model first reads what is being asked, then what was already done.
     lastUserIdx := -1
     for i := len(messages) - 1; i >= 0; i-- {
         if messages[i].Role == "user" {
@@ -565,7 +613,22 @@ func buildAgentPrompt(messages []agentMessage, tools []openAITool) string {
         }
     }
 
-    // 6. Final output contract reminder (recency anchor).
+    // 5. Render recent conversation turns with grouped tool exchanges.
+    if len(recentMessages) > 0 {
+        b.WriteString("<recent>\n")
+        renderRecentConversation(&b, recentMessages)
+        b.WriteString("</recent>\n\n")
+    }
+
+    // 6. Anchor the next decision on the outcome of the most recent tool
+    //    call so the model evaluates progress instead of re-starting the
+    //    task; escalates to a forced final answer on long autonomous runs.
+    if step := renderCurrentStep(messages); step != "" {
+        b.WriteString(step)
+        b.WriteString("\n\n")
+    }
+
+    // 7. Final output contract reminder (recency anchor).
     b.WriteString(agentFinalReminder)
 
     return b.String()

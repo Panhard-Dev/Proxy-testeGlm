@@ -15,10 +15,14 @@ import (
 // CONFIGURATION
 // ============================================================================
 
+// Aliyun captcha credentials come from the environment so real keys are
+// never committed (ALIYUN_ACCESS_KEY / ALIYUN_SECRET_KEY).
+var (
+    accessKey = os.Getenv("ALIYUN_ACCESS_KEY")
+    secretKey = os.Getenv("ALIYUN_SECRET_KEY")
+)
+
 const (
-    // Aliyun captcha credentials
-    accessKey       = "LTAI5tSEBwYMwVKAQGpxmvTd"
-    secretKey       = "YSKfst7GaVkXwZYvVihJsKF9r89koz"
     sceneID         = "didk33e0"
     maxTokenRetries = 5
 

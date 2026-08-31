@@ -10,8 +10,6 @@
 const readline = require('readline');
 const fs       = require('fs');
 const path     = require('path');
-const https    = require('https');
-const http     = require('http');
 
 // ─── ANSI helpers ────────────────────────────────────────────────────────────
 const A = {
@@ -371,30 +369,6 @@ async function authenticateViaOAuth(zaiToken) {
   };
 }
 
-// ─── Image downloader ─────────────────────────────────────────────────────────
-function downloadImage(imageUrl, destPath) {
-  return new Promise((resolve, reject) => {
-    const follow = (url, redirects = 0) => {
-      if (redirects > 5) return reject(new Error('Too many redirects'));
-      const parsed = new URL(url);
-      const lib    = parsed.protocol === 'https:' ? https : http;
-      lib.get(url, res => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return follow(res.headers.location, redirects + 1);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-        }
-        const file = fs.createWriteStream(destPath);
-        res.pipe(file);
-        file.on('finish', () => file.close(resolve));
-        file.on('error',  err => { fs.unlink(destPath, () => {}); reject(err); });
-      }).on('error', reject);
-    };
-    follow(imageUrl);
-  });
-}
-
 // ─── Status bar (current session defaults) ───────────────────────────────────
 function printStatus(state) {
   console.log('');
@@ -630,29 +604,9 @@ async function main() {
     }
     console.log('');
 
-    // 6. Download?
-    const dl = (await input.ask(c(A.yellow, '  Download image? (yes/no): '))).trim().toLowerCase();
-
-    if (dl === 'yes' || dl === 'y') {
-      const defaultName = `image_${Date.now()}.png`;
-      const customName  = (
-        await input.ask(c(A.yellow, `  Save as [${defaultName}]: `))
-      ).trim();
-      const filename = customName || defaultName;
-      const destPath = path.resolve(process.cwd(), filename);
-
-      const dlSpinner = makeSpinner(`Downloading → ${filename}`);
-      try {
-        await downloadImage(imageUrl, destPath);
-        dlSpinner.stop();
-        log('success', `Saved to ${b(destPath)}`);
-      } catch (err) {
-        dlSpinner.stop();
-        log('error', `Download failed: ${err.message}`);
-      }
-    } else {
-      log('info', 'Skipped download.');
-    }
+    // The image URL printed above is the deliverable — open or save it
+    // directly. Local save-to-disk was removed to eliminate a
+    // path-traversal vector in the download flow.
 
     console.log('');
     printStatus(state);

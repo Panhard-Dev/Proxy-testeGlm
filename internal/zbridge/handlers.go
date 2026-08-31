@@ -36,10 +36,12 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
     }
     bodyBytes, err := io.ReadAll(r.Body)
     if err != nil {
+        logError(fmt.Sprintf("[http 400] failed to read request body: %s", err.Error()))
         writeJSON(w, 400, formatOpenAIError("Failed to read body", "invalid_request_error", nil))
         return
     }
     if err := json.Unmarshal(bodyBytes, &body); err != nil {
+        logError(fmt.Sprintf("[http 400] invalid JSON body (%d bytes): %s", len(bodyBytes), err.Error()))
         writeJSON(w, 400, formatOpenAIError("Invalid JSON", "invalid_request_error", nil))
         return
     }
@@ -51,6 +53,7 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
 
     var messages []Message
     if err := json.Unmarshal(body.Messages, &messages); err != nil || len(messages) == 0 {
+        logError(fmt.Sprintf("[http 400] messages invalid or empty model=%s err=%v", model, err))
         writeJSON(w, 400, formatOpenAIError("messages is required and must be an array", "invalid_request_error", nil))
         return
     }
@@ -60,6 +63,7 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
     // when the request carries no images (the common case).
     cleanedMessages, files, vErr := processVisionMessages(r.Context(), body.Messages)
     if vErr != nil {
+        logError(fmt.Sprintf("[http 400] vision processing failed model=%s: %s", model, vErr.Error()))
         writeJSON(w, 400, formatOpenAIError(vErr.Error(), "invalid_request_error", nil))
         return
     }

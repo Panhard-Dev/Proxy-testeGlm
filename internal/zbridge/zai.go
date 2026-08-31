@@ -311,25 +311,29 @@ func sendToZAI(prompt string, opts SendOptions) (<-chan ZAIResult, error) {
     delete(featuresMap, "reasoning_effort")
 
     if opts.ReasoningEffort != "" {
-        if modelSupportsReasoningEffort(model) {
-            if isValidReasoningEffort(opts.ReasoningEffort) {
-                // Forward reasoning_effort INSIDE the features payload
-                featuresMap["reasoning_effort"] = opts.ReasoningEffort
-                // When reasoning_effort is active, enable_thinking MUST be true
-                // and any user modification on enable_thinking is ignored.
-                featuresMap["enable_thinking"] = true
-                logInfo(fmt.Sprintf(
-                    "[reasoning_effort] model=%s effort=%s enabled (enable_thinking forced true)",
-                    model, opts.ReasoningEffort))
-            } else {
-                logError(fmt.Sprintf(
-                    "[reasoning_effort] invalid value '%s' for model=%s (accepted: high, max); ignored",
-                    opts.ReasoningEffort, model))
-            }
-        } else {
+        switch {
+        case !isValidReasoningEffort(opts.ReasoningEffort):
+            logError(fmt.Sprintf(
+                "[reasoning_effort] invalid value '%s' for model=%s (accepted: low, high, max); ignored",
+                opts.ReasoningEffort, model))
+
+        case modelSupportsReasoningEffort(model):
+            // Forward reasoning_effort INSIDE the features payload — the same
+            // Low/High/Max control the chat.z.ai web client exposes. "low"
+            // genuinely reduces reasoning depth (the removed thinking_budget
+            // hack was not recognised by the web API and broke tool calling).
+            featuresMap["reasoning_effort"] = opts.ReasoningEffort
+            // When reasoning_effort is active, enable_thinking MUST be true
+            // and any user modification on enable_thinking is ignored.
+            featuresMap["enable_thinking"] = true
             logInfo(fmt.Sprintf(
-                "[reasoning_effort] model=%s does not support reasoning_effort; parameter ignored",
-                model))
+                "[reasoning_effort] model=%s effort=%s enabled (enable_thinking forced true)",
+                model, opts.ReasoningEffort))
+
+        default:
+            logInfo(fmt.Sprintf(
+                "[reasoning_effort] model=%s does not support reasoning_effort; effort=%s left as unlimited thinking",
+                model, opts.ReasoningEffort))
         }
     }
 
