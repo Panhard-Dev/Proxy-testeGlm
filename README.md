@@ -125,6 +125,7 @@ On startup a banner shows the health URL, endpoints, and auth token. The Z.AI se
 | `ZAI_TOKEN` | *(empty)* | Hardcoded Z.AI JWT — skips guest initialization |
 | `AGENT_MODE` | `false` | Enable agent mode (`1`/`true`/`yes`/`on`/`modern` → modern shim, `legacy` → legacy shim) |
 | `AGENT_MODE_VARIANT` | `modern` | Shim variant override (`modern`/`legacy`; takes precedence over `AGENT_MODE`'s implicit variant) |
+| `AGENT_REASONING_EFFORT` | `low` | Default `reasoning_effort` for tool-calling requests that don't send one. Measured on live agent sessions: without an effort Z.AI thinks **without limit** — 5k–74k reasoning chars before *every* tool call, which made simple tasks take tens of minutes. `low` keeps an agent loop fast (≈100–400 reasoning chars/turn, multi-step sessions complete in seconds); plain chat requests are untouched (unlimited thinking remains the default there — that depth is the product). Set `""` (empty) to restore unlimited thinking for agents too, or `high`/`max` for depth-first agents. The client's explicit `reasoning_effort` always wins; efforts decay one step after each tool result (`max`→`high`, `high`→`low`) since evidence already arrived. |
 | `LOG_LEVEL` | `debug` | `debug` dumps every Z.AI request/response, SSE lines, and headers |
 | `LOG_FORMAT` | `text` | Log format |
 | `STREAM_HOLDBACK` | `24` | Runes held back at a live stream's tail to absorb Z.AI `edit_content` backtracks before they reach the client (`0` disables; issue #23) |
@@ -178,7 +179,7 @@ Anthropic clients authenticate via `x-api-key` (same value as `AUTH_TOKEN`); `an
 | `stream` | bool | `true` | SSE stream when true |
 | `reasoning` | bool | *(per-model)* | Enables `enable_thinking` |
 | `thinking` | object | *(per-model)* | `{"type":"enabled"}` / `{"type":"disabled"}` → `enable_thinking` |
-| `reasoning_effort` | string | *(empty)* | `"high"`/`"max"` — forwarded only if the model supports it; forces `enable_thinking=true` |
+| `reasoning_effort` | string | *(empty)* | `"low"`/`"high"`/`"max"` — forwarded only if the model supports it; forces `enable_thinking=true`. Requests with `tools` that omit it get `AGENT_REASONING_EFFORT` (default `low`) — otherwise Z.AI thinks without limit before every tool call |
 | `tools` | array | *(empty)* | OpenAI-style tools (requires agent mode) |
 | `webSearch` / `search` | bool | *(per-model)* | Toggle `auto_web_search` + `web_search` |
 

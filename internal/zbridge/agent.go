@@ -196,6 +196,7 @@ const agentSystemPrefix = "<system>\n" +
     "(B) FINAL ANSWER: plain text, when the task is complete or no tool applies.\n" +
     "\n" +
     "RULES:\n" +
+    "- Think enough to choose the next useful action, then act. Do not exhaustively plan work that a tool can inspect.\n" +
     "- Never announce plans (\u201cI\u2019ll...\u201d, \u201cLet me...\u201d). Emit the block \u2014 that IS the action.\n" +
     "- Never print code fences (" + "```bash" + ", " + "```json" + "). Only the runtime executes tools.\n" +
     "- Never wrap tool-call markers in code fences.\n" +

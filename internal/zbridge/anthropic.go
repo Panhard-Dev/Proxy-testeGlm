@@ -168,6 +168,9 @@ func anthropicToOpenAIRequest(bodyBytes []byte) ([]byte, error) {
     if tp, ok := req["top_p"]; ok {
         out["top_p"] = tp
     }
+    if effort, ok := req["reasoning_effort"]; ok {
+        out["reasoning_effort"] = effort
+    }
     if ss, ok := req["stop_sequences"]; ok {
         out["stop"] = ss
     }
@@ -400,6 +403,13 @@ func anthropicMessagesHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer ReleaseStatelessSession(chatID, pooled)
     requestId := "msg_" + generateID()
+    // Tool-calling requests without an explicit effort get the agent default
+    // (AGENT_REASONING_EFFORT, "low"); plain chat keeps unlimited thinking.
+    agentDefault := ""
+    if len(body.Tools) > 0 {
+        agentDefault = config.AgentReasoningEffort
+    }
+    reasoningEffort := reasoningEffortForTurn(messages, body.ReasoningEffort, agentDefault)
 
     var transformedMessages json.RawMessage = cleanedMessages
     if config.AgentMode {
@@ -418,7 +428,7 @@ func anthropicMessagesHandler(w http.ResponseWriter, r *http.Request) {
         Model:             model,
         ChatID:            chatID,
         ClientMessagesRaw: transformedMessages,
-        ReasoningEffort:   body.ReasoningEffort,
+        ReasoningEffort:   reasoningEffort,
         Files:             files,
     }
 

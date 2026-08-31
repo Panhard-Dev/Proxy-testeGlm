@@ -100,6 +100,13 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer ReleaseStatelessSession(chatID, pooled)
     requestId := generateID()
+    // Tool-calling requests without an explicit effort get the agent default
+    // (AGENT_REASONING_EFFORT, "low"); plain chat keeps unlimited thinking.
+    agentDefault := ""
+    if len(body.Tools) > 0 {
+        agentDefault = config.AgentReasoningEffort
+    }
+    reasoningEffort := reasoningEffortForTurn(messages, body.ReasoningEffort, agentDefault)
 
     // ── Agent mode: transform tools & roles for Z.AI compatibility ──
     // Modern shim (default): one XML-sectioned prompt in a single user message.
@@ -127,7 +134,7 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
         Model:             model,
         ChatID:            chatID,
         ClientMessagesRaw: transformedMessages,
-        ReasoningEffort:   body.ReasoningEffort,
+        ReasoningEffort:   reasoningEffort,
         Files:             files,
     }
 

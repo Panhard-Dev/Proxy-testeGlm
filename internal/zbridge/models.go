@@ -168,6 +168,37 @@ func isValidReasoningEffort(value string) bool {
     }
 }
 
+// reasoningEffortForTurn resolves the effort for one completion turn.
+//
+// When the client requested no effort, tool-calling (agent) requests fall
+// back to config.AgentReasoningEffort (default "low"). Without it Z.AI
+// thinks without limit — measured on live agent sessions at 5k–74k reasoning
+// characters before every tool call, which is what made simple tasks take
+// tens of minutes. Plain chat requests keep unlimited thinking: there the
+// depth is the product. An explicit client effort always wins; agentDefault
+// is "" when the request carries no tools.
+//
+// The resolved effort is then decayed one step after a tool result: the
+// environment already supplied new evidence at that point, so rebuilding the
+// full plan wastes reasoning before every next action. Thinking stays
+// enabled; only its per-turn depth changes.
+func reasoningEffortForTurn(messages []Message, effort, agentDefault string) string {
+    if effort == "" {
+        effort = agentDefault
+    }
+    if len(messages) == 0 || messages[len(messages)-1].Role != "tool" {
+        return effort
+    }
+    switch effort {
+    case "max":
+        return "high"
+    case "high":
+        return "low"
+    default:
+        return effort
+    }
+}
+
 // modelSupportsVision returns true only when the model's capabilities JSON
 // explicitly contains "vision": true. Models without the field (or with it
 // set to false) are treated as text-only.

@@ -57,6 +57,13 @@ type Config struct {
     //                        DeepseekFreeAPI (see agent.go)
     //   "legacy"           — the original [ROLE: ...] rewrite shim
     AgentModeVariant string
+    // AgentReasoningEffort is the default reasoning_effort applied to
+    // tool-calling (agent) requests that don't request one. Z.AI models
+    // that support reasoning_effort otherwise think without limit before
+    // every tool call (measured at 5k–74k reasoning chars per turn in live
+    // agent sessions). "" keeps unlimited thinking. One of "low", "high",
+    // "max". See models.go reasoningEffortForTurn.
+    AgentReasoningEffort string
     Logging   struct {
         Level  string
         Format string
@@ -93,6 +100,7 @@ func loadConfig() *Config {
     c.ZaiToken = ""
     c.AgentMode = false
     c.AgentModeVariant = "modern"
+    c.AgentReasoningEffort = "low"
     c.Logging.Level = "debug"
     c.Logging.Format = "text"
     c.KnownModels = []string{"GLM-5.1", "GLM-5"}
@@ -141,6 +149,11 @@ func loadConfig() *Config {
         case "modern":
             c.AgentModeVariant = "modern"
         }
+    }
+    // AGENT_REASONING_EFFORT overrides the default effort for tool-calling
+    // requests without an explicit client effort ("" = unlimited thinking).
+    if e := os.Getenv("AGENT_REASONING_EFFORT"); e != "" {
+        c.AgentReasoningEffort = e
     }
     if l := os.Getenv("LOG_LEVEL"); l != "" {
         c.Logging.Level = l
