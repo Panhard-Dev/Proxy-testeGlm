@@ -61,6 +61,15 @@ Text-only models report `"modality": "text->text"` / `"input_modalities": ["text
 > - Guest session (no `ZAI_TOKEN`) typically only allows `glm-5.3-flash` and `glm-4.7` — use `glm-4.7` for fast tokenless testing.
 > - `/models` (plural) returns `{ models: [...], currentModel: "glm-5.2" }` for clients expecting that shape.
 
+### `-no-think` variants
+
+Every model that supports `reasoning_effort` also exposes a **`-no-think`** alias in `/v1/models` — `x-preview-l-no-think`, `glm-5.3-no-think`, `glm-5.2-no-think`. Requests against an alias run on the base model with:
+
+- **`reasoning_effort` pinned to `low`** (the shallowest depth Z.AI accepts — measured ~25x fewer reasoning chars, turns ~2-3x faster), and
+- **no `reasoning_content` / thinking blocks in the response** — whatever residual reasoning still streams is swallowed, on both endpoints, stream and non-stream.
+
+Why not disable thinking outright: Z.AI's `/api/v2/chat/completions` ignores `enable_thinking=false`, `skip_think` and `free_think` on its reasoning models (verified empirically on `x-preview-l` — the stream still emits `phase:"thinking"`); only `glm-4.7` honors `enable_thinking=false`. `reasoning_effort:"low"` is the only lever that actually cuts reasoning on the others. The alias combines it with response-level stripping, so the client never sees thinking. An explicit `reasoning_effort` in the request body overrides the alias pin.
+
 ---
 
 ## Getting `ZAI_TOKEN` (optional, but recommended)
