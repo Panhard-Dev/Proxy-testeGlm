@@ -50,6 +50,12 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
     if model == "" {
         model = "glm-5"
     }
+    // -no-think alias: forward the base model to Z.AI but pin the effort to
+    // the shallowest level and hide residual reasoning from the client.
+    baseModel, noThink := resolveModelAlias(model)
+    if noThink {
+        model = baseModel
+    }
 
     var messages []Message
     if err := json.Unmarshal(body.Messages, &messages); err != nil || len(messages) == 0 {
@@ -107,6 +113,9 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
         agentDefault = config.AgentReasoningEffort
     }
     reasoningEffort := reasoningEffortForTurn(messages, body.ReasoningEffort, agentDefault)
+    if noThink && (reasoningEffort == "" || !isValidReasoningEffort(reasoningEffort)) {
+        reasoningEffort = "low"
+    }
 
     // ── Agent mode: transform tools & roles for Z.AI compatibility ──
     // Modern shim (default): one XML-sectioned prompt in a single user message.
@@ -242,6 +251,10 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
                 }
                 
                 if result.Reasoning != "" {
+                    if noThink {
+                        // -no-think: swallow residual reasoning entirely.
+                        continue
+                    }
                     fullReasoning += result.Reasoning
                     rChunk := map[string]interface{}{
                         "id":      "chatcmpl-" + requestId,
@@ -368,7 +381,9 @@ func chatCompletionsHandler(w http.ResponseWriter, r *http.Request) {
                 return
             }
             if result.Reasoning != "" {
-                fullReasoning += result.Reasoning
+                if !noThink {
+                    fullReasoning += result.Reasoning
+                }
                 continue
             }
             if result.FullText != "" {

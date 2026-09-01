@@ -364,6 +364,12 @@ func anthropicMessagesHandler(w http.ResponseWriter, r *http.Request) {
     if model == "" {
         model = "glm-5"
     }
+    // -no-think alias: forward the base model to Z.AI but pin the effort to
+    // the shallowest level and hide residual thinking from the client.
+    baseModel, noThink := resolveModelAlias(model)
+    if noThink {
+        model = baseModel
+    }
 
     var messages []Message
     if err := json.Unmarshal(body.Messages, &messages); err != nil || len(messages) == 0 {
@@ -410,6 +416,9 @@ func anthropicMessagesHandler(w http.ResponseWriter, r *http.Request) {
         agentDefault = config.AgentReasoningEffort
     }
     reasoningEffort := reasoningEffortForTurn(messages, body.ReasoningEffort, agentDefault)
+    if noThink && (reasoningEffort == "" || !isValidReasoningEffort(reasoningEffort)) {
+        reasoningEffort = "low"
+    }
 
     var transformedMessages json.RawMessage = cleanedMessages
     if config.AgentMode {
@@ -440,14 +449,15 @@ func anthropicMessagesHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     if stream {
-        anthropicStreamResponse(w, prompt, opts, model, requestId)
+        anthropicStreamResponse(w, prompt, opts, model, requestId, noThink)
     } else {
-        anthropicNonStreamResponse(w, prompt, opts, model, requestId)
+        anthropicNonStreamResponse(w, prompt, opts, model, requestId, noThink)
     }
 }
 
 // anthropicStreamResponse converts a ZAIResult stream to Anthropic SSE events.
-func anthropicStreamResponse(w http.ResponseWriter, prompt string, opts SendOptions, model, requestId string) {
+// noThink (the -no-think alias) swallows thinking blocks from the output.
+func anthropicStreamResponse(w http.ResponseWriter, prompt string, opts SendOptions, model, requestId string, noThink bool) {
     w.Header().Set("Content-Type", "text/event-stream")
     w.Header().Set("Cache-Control", "no-cache")
     w.Header().Set("Connection", "keep-alive")
@@ -606,8 +616,11 @@ func anthropicStreamResponse(w http.ResponseWriter, prompt string, opts SendOpti
             return
         }
 
-        // Reasoning -> thinking content block
+        // Reasoning -> thinking content block (-no-think: swallow it)
         if result.Reasoning != "" {
+            if noThink {
+                continue
+            }
             if currentBlockType != "thinking" {
                 stopBlock()
                 startBlock("thinking", map[string]interface{}{"thinking": ""})
@@ -738,7 +751,7 @@ func anthropicStreamResponse(w http.ResponseWriter, prompt string, opts SendOpti
 }
 
 // anthropicNonStreamResponse produces a single Anthropic message object.
-func anthropicNonStreamResponse(w http.ResponseWriter, prompt string, opts SendOptions, model, requestId string) {
+func anthropicNonStreamResponse(w http.ResponseWriter, prompt string, opts SendOptions, model, requestId string, noThink bool) {
     ch, err := sendToZAI(prompt, opts)
     if err != nil {
         writeJSON(w, statusFromError(err.Error()), formatAnthropicError("api_error", err.Error()))
@@ -753,7 +766,9 @@ func anthropicNonStreamResponse(w http.ResponseWriter, prompt string, opts SendO
             return
         }
         if result.Reasoning != "" {
-            fullReasoning += result.Reasoning
+            if !noThink {
+                fullReasoning += result.Reasoning
+            }
             continue
         }
         if result.FullText != "" {

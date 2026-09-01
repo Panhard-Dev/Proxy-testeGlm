@@ -131,8 +131,50 @@ func getFeaturesForModel(modelID string) Features {
     return f
 }
 
+// ============================================================================
+// NO-THINK MODEL ALIASES
+// ============================================================================
+//
+// Z.AI's /api/v2/chat/completions ignores enable_thinking=false on its
+// reasoning models (verified empirically on x-preview-l: enable_thinking,
+// skip_think and free_think were all forwarded and the model still emitted
+// phase:"thinking" — only glm-4.7 honors the flag). What DOES cut reasoning
+// is reasoning_effort:"low" (measured ~25x fewer reasoning chars, 4x faster
+// turns). So a "-no-think" alias can't fully silence upstream thinking on
+// those models — instead it pins the effort to "low" (the shallowest the
+// Z.AI backend accepts) and hides whatever residual reasoning still leaks
+// from the client response entirely.
+
+// noThinkSuffix appended to a base model ID requests the no-think variant.
+const noThinkSuffix = "-no-think"
+
+// resolveModelAlias splits a requested model ID into its base ID and whether
+// the -no-think variant was requested. Matching is case-insensitive.
+func resolveModelAlias(modelID string) (baseID string, noThink bool) {
+    if rest, ok := strings.CutSuffix(strings.ToLower(modelID), noThinkSuffix); ok && rest != "" {
+        return modelID[:len(modelID)-len(noThinkSuffix)], true
+    }
+    return modelID, false
+}
+
+// noThinkModels returns the model IDs that gain a -no-think alias in the
+// public model list: every live model that supports reasoning_effort (the
+// alias mechanism needs it to pin the effort).
+func noThinkModels(models []ModelInfo) []string {
+    var ids []string
+    for _, m := range models {
+        caps := m.Capabilities
+        if v, ok := caps["reasoning_effort"].(bool); ok && v {
+            ids = append(ids, m.ID)
+        }
+    }
+    return ids
+}
+
 // getModelCapabilities returns the raw capabilities map for a model.
+// -no-think aliases resolve to their base model's capabilities.
 func getModelCapabilities(modelID string) map[string]interface{} {
+    modelID, _ = resolveModelAlias(modelID)
     for _, m := range fetchModelsFromZAI() {
         if strings.EqualFold(m.ID, modelID) {
             return m.Capabilities
@@ -255,6 +297,20 @@ func modelsHandler(w http.ResponseWriter, r *http.Request) {
             "architecture": architectureFor(m.Capabilities),
         }
         data = append(data, entry)
+        // -no-think variant: same model, reasoning pinned to the shallowest
+        // effort and residual reasoning hidden from the response.
+        if v, ok := m.Capabilities["reasoning_effort"].(bool); ok && v {
+            variant := map[string]interface{}{
+                "id":           m.ID + noThinkSuffix,
+                "object":       "model",
+                "created":      created,
+                "owned_by":     "z-ai",
+                "display_name": m.Name + " (no think)",
+                "description":  m.Description + " — reasoning effort pinned to low; no reasoning_content in responses.",
+                "architecture": architectureFor(m.Capabilities),
+            }
+            data = append(data, variant)
+        }
     }
     writeJSON(w, 200, map[string]interface{}{
         "object": "list",
@@ -267,6 +323,9 @@ func modelsHandler2(w http.ResponseWriter, r *http.Request) {
     ids := make([]string, 0, len(models))
     for _, m := range models {
         ids = append(ids, m.ID)
+        if v, ok := m.Capabilities["reasoning_effort"].(bool); ok && v {
+            ids = append(ids, m.ID+noThinkSuffix)
+        }
     }
     currentModel := "glm-5.2"
     if len(ids) > 0 {
