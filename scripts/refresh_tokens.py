@@ -24,6 +24,7 @@ Usage:
 
 import argparse
 import base64
+import os
 import re
 import shutil
 import sqlite3
@@ -31,6 +32,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+if os.name == "nt":
+    import winreg
+else:
+    winreg = None
 
 # ---------------------------------------------------------------------------
 # Paths (all under the sibling glm-render/GLM-Free-API dirs on this machine)
@@ -56,6 +62,24 @@ DEFAULT_MAX_AGE = 20.0 # hours; tokens older than this are dropped
 
 def log(msg: str) -> None:
     print(f"[refresh] {msg}", flush=True)
+
+
+def winuser_env(name: str) -> str | None:
+    """Read a persistent USER env var from the registry (Windows only).
+
+    Returns None on non-Windows or when the value is absent."""
+    if winreg is None:
+        return None
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ)
+        try:
+            value, _ = winreg.QueryValueEx(key, name)
+        finally:
+            key.Close()
+        return value if isinstance(value, str) else None
+    except OSError:
+        return None
 
 
 def token_age_hours(token: str) -> float | None:
@@ -222,19 +246,24 @@ def main() -> int:
 
     # The local server was stopped above — restart it detached on the fresh
     # bank so the machine keeps serving after an unattended renewal run.
-    # Credentials (ZAI_TOKEN / ALIYUN_*) come from the persistent user
-    # environment; the scheduled task runs under the same user and the
-    # restarted server inherits them. stdout/stderr are inherited too: the
-    # task scheduler discards them, and without --verbose the bridge only
-    # writes startup lines to stderr — the rotatable logs come from manual
-    # launches.
+    # Credentials come from the persistent user environment (setx-style),
+    # which the scheduled task and this script both inherit. The registry
+    # read is the source of truth: even when this script runs from a shell
+    # without the vars exported, the server still gets the account token.
     if (MAIN_REPO / "zai-api.exe").exists():
+        env = dict(os.environ)
+        for name in ("ZAI_TOKEN", "ALIYUN_ACCESS_KEY", "ALIYUN_SECRET_KEY"):
+            if not env.get(name):
+                stored = winuser_env(name)
+                if stored:
+                    env[name] = stored
         subprocess.Popen(
             [str(MAIN_REPO / "zai-api.exe"), "--agent-mode"],
             cwd=str(MAIN_REPO),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
         )
         log("local server restarted on fresh bank")
 
