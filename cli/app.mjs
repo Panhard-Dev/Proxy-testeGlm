@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Laizy terminal interface; adaptation attribution in ui.mjs.
 import readline from 'node:readline';
+import os from 'node:os';
 import { readFileSync, realpathSync, writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { OpenAIClient } from './client.mjs';
@@ -401,10 +402,11 @@ export class App {
         const items = this.menuItems();
         const title = this.menu.mode === 'models' ? 'Modelos' : 'Menu';
         const inner = Math.max(10, cw - 4);
+        const cmdW = Math.min(30, Math.max(8, ...items.map(i => width(i.cmd))));
         const menuLines = [theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮')];
         items.forEach((it, i) => {
           const sel = i === this.menu.choice;
-          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, 12) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - 18))));
+          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, cmdW) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - cmdW - 6))));
           menuLines.push(theme.border('│ ') + fit(row, inner) + theme.border(' │'));
         });
         menuLines.push(theme.border('╰' + '─'.repeat(inner) + '╯'));
@@ -446,19 +448,21 @@ export class App {
         menuItems = this.menuItems();
         const title = this.menu.mode === 'models' ? 'Modelos' : 'Menu';
         const inner = Math.max(10, cw - 4);
+        const cmdW = Math.min(30, Math.max(8, ...menuItems.map(i => width(i.cmd))));
         menuLines.push(theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮'));
         menuItems.forEach((it, i) => {
           const sel = i === this.menu.choice;
-          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, 12) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - 18))));
+          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, cmdW) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - cmdW - 6))));
           menuLines.push(theme.border('│ ') + fit(row, inner) + theme.border(' │'));
         });
         menuLines.push(theme.border('╰' + '─'.repeat(inner) + '╯'));
       }
       const menuTop = composerY - menuLines.length - 1;
       put(rows - 2, '');
+      const cwd = process.cwd().replace(os.homedir(), '~');
       const foot = cw < 60
         ? (this.busy ? 'Esc cancelar · F2 modelo · Tab Logs' : 'Enter enviar · F2 modelo · Tab Logs')
-        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs`;
+        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs ${theme.border('|')} ${theme.lilac(cwd)}`;
       put(rows - 1, theme.muted(foot));
       const f2pos = foot.indexOf('F2 modelo');
       if (f2pos >= 0) this.clickZones.push({ row: rows - 1, x1: left + f2pos, x2: left + f2pos + 30, action: () => { this.picker = true; this.choice = Math.max(0, this.models.indexOf(this.model)); void this.refreshModels(); } });
