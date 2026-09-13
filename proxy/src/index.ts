@@ -44,6 +44,7 @@ app.use('*', cors());
 app.use('*', async (c, next) => {
   // The admin HTML page itself is public; its data endpoints below stay protected.
   if (c.req.path === '/admin' || c.req.path === '/health') return next();
+  if (c.req.method === 'GET' && c.req.path === '/v1/models') return next();
   const authHeader = c.req.header('Authorization');
   const xApiKey = c.req.header('X-API-Key');
   const providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : xApiKey;
