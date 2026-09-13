@@ -290,19 +290,30 @@ export class App {
     this.mouseBuf += chunk.toString();
     let mouse = false;
     for (;;) {
-      const m = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(this.mouseBuf);
-      if (!m) break;
-      mouse = true;
-      this.mouseBuf = this.mouseBuf.slice(m.index + m[0].length);
-      if (m[1] === '0') {
-        const row = parseInt(m[3], 10) - 1;
+      const sgr = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(this.mouseBuf);
+      const x10 = /\x1b\[M([\s\S]{3})/.exec(this.mouseBuf);
+      if (!sgr && !x10) break;
+      let row;
+      if (sgr && (!x10 || sgr.index <= x10.index)) {
+        mouse = true;
+        this.mouseBuf = this.mouseBuf.slice(sgr.index + sgr[0].length);
+        if (sgr[1] === '0') row = parseInt(sgr[3], 10) - 1;
+      } else {
+        // X10 legacy: 3 bytes binários (botão, x+32, y+32)
+        mouse = true;
+        const b = x10[1].charCodeAt(0) - 32;
+        row = x10[1].charCodeAt(2) - 32 - 1;
+        this.mouseBuf = this.mouseBuf.slice(x10.index + x10[0].length);
+        if (b !== 0 && b !== 32) row = null; // só clique esquerdo alterna
+      }
+      if (row != null) {
         for (const h of this.toolHits) {
           if (h.row === row) { h.msg.expanded = !h.msg.expanded; this.changed(); break; }
         }
       }
     }
     // começo de sequência ainda incompleto → mantém suprimindo
-    const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf);
+    const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf) || /\x1b\[M?$/.test(this.mouseBuf);
     if (mouse || partial) {
       this.suppressKeypress = true;
       clearTimeout(this._mouseFlush);
@@ -601,7 +612,7 @@ export async function run() {
     process.stdin.setRawMode(Boolean(wasRaw)); process.stdin.pause();
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'exit']) process.off(signal, stop);
     process.off('uncaughtExceptionMonitor', stop);
-    try { writeSync(1, '\x1b[0m\x1b[?25h\x1b[?1049l\x1b[?1000l'); } catch {}
+    try { writeSync(1, '\x1b[0m\x1b[?25h\x1b[?1049l\x1b[?1000l\x1b[?1006l'); } catch {}
   }
   function onKey(ch, key) { if (app.key(ch, key) === 'exit') stop(); }
   function resize() { previous = []; render(); }
@@ -611,7 +622,7 @@ export async function run() {
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true); process.stdin.resume();
   process.stdin.on('keypress', onKey); process.stdout.on('resize', resize);
-  process.stdout.write('\x1b[?1049h\x1b[2J\x1b[?25l\x1b[?1000h');
+  process.stdout.write('\x1b[?1049h\x1b[2J\x1b[?25l\x1b[?1000h\x1b[?1006h');
   render(); void app.refreshModels();
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

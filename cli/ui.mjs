@@ -132,16 +132,53 @@ export function errorSummary(error) {
   if (/captcha/i.test(text)) return 'Verificação de segurança pendente. Tente novamente; detalhes em Logs.';
   return 'Não foi possível concluir a resposta. Tente novamente; detalhes em Logs.';
 }
+const bold = s => `\x1b[1m${s}\x1b[22m`;
+
+function renderTable(rows, w) {
+  const parse = r => r.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+  const header = parse(rows[0]);
+  const body = rows.slice(2).map(parse); // rows[1] é o separador |---|
+  const cols = Math.max(1, header.length);
+  const avail = Math.max(12, w - 4 - cols * 3);
+  const natural = header.map((h, ci) => Math.max(h.length, ...body.map(r => (r[ci] || '').length)));
+  const widths = natural.map(n => Math.min(n, Math.max(5, Math.floor(avail / cols))));
+  const cell = (c, ci, head) => {
+    const txt = fit(head ? bold(c) : c, widths[ci]);
+    return theme.border('│') + ' ' + txt + ' '.repeat(Math.max(0, widths[ci] - width(c))) + ' ';
+  };
+  const line = (cells, head) => cells.map((c, ci) => cell(c, ci, head)).join('') + theme.border('│');
+  const sep = theme.border('├' + widths.map(n => '─'.repeat(n + 2)).join('┼') + '┤');
+  return [
+    line(header, true),
+    sep,
+    ...body.map(r => line(header.map((_, ci) => r[ci] || ''), false)),
+  ];
+}
+
 export function markdown(text, w) {
   let code = false;
   // destaque inline: `código` em lilás e **negrito** em bold, aplicado antes
   // do wrap (width() ignora ANSI, então a quebra de linha continua correta).
   const inline = s => s
     .replace(/`([^`]+)`/g, (_, c) => theme.lilac(c))
-    .replace(/\*\*([^*]+)\*\*/g, (_, b) => `\x1b[1m${b}\x1b[22m`);
-  return safe(text).split('\n').flatMap(line => {
-    if (/^\s*```/.test(line)) { code = !code; return [theme.muted(fit(line, w))]; }
-    const paint = code ? theme.lilac : /^#{1,6} /.test(line) ? theme.violet : s => s;
-    return wrap(inline(line), w).map(paint);
-  });
+    .replace(/\*\*([^*]+)\*\*/g, (_, b) => bold(b));
+  const lines = safe(text).split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) { code = !code; out.push(theme.muted(fit(line, w))); continue; }
+    if (code) { out.push(theme.lilac(fit(line, w))); continue; }
+    // bloco de tabela markdown: linha com | seguida de separador |---|
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1] || '')) {
+      const rows = [];
+      let j = i;
+      while (j < lines.length && /^\s*\|.*\|\s*$/.test(lines[j])) { rows.push(lines[j]); j++; }
+      i = j - 1;
+      out.push(...renderTable(rows, w));
+      continue;
+    }
+    const paint = /^#{1,6} /.test(line) ? theme.violet : s => s;
+    out.push(...wrap(inline(line), w).map(paint));
+  }
+  return out;
 }
