@@ -96,7 +96,7 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
           resolve(out);
         });
       });
-      return { ok: true, text, summary: `$ ${command}` };
+      return { ok: true, text, detail: `$ ${command}`, summary: `$ ${command}` };
     }
 
     if (name === 'write_file') {
@@ -106,13 +106,13 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
       const existed = fs.existsSync(file);
       fs.writeFileSync(file, content);
       const kb = (Buffer.byteLength(content) / 1024).toFixed(1);
-      return { ok: true, text: `${existed ? 'Arquivo atualizado' : 'Arquivo criado'}: ${file} (${kb} KB)`, summary: `${existed ? 'editou' : 'criou'} ${path.basename(file)} (${kb} KB)` };
+      return { ok: true, text: `${existed ? 'Arquivo atualizado' : 'Arquivo criado'}: ${file} (${kb} KB)`, detail: file, summary: `${existed ? 'editou' : 'criou'} ${path.basename(file)} (${kb} KB)` };
     }
 
     if (name === 'read_file') {
       const file = resolveSafe(String(args.path || ''), cwd);
       const text = clip(fs.readFileSync(file, 'utf8'));
-      return { ok: true, text, summary: `leu ${path.basename(file)} (${text.length} chars)` };
+      return { ok: true, text, detail: file, summary: `leu ${path.basename(file)} (${text.length} chars)` };
     }
 
     if (name === 'list_dir') {
@@ -120,7 +120,7 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
       const entries = fs.readdirSync(dir, { withFileTypes: true })
         .slice(0, 300)
         .map(e => e.isDirectory() ? e.name + '/' : e.name);
-      return { ok: true, text: `${dir}\n` + (entries.join('\n') || '(vazio)'), summary: `listou ${path.basename(dir)} (${entries.length} itens)` };
+      return { ok: true, text: `${dir}\n` + (entries.join('\n') || '(vazio)'), detail: dir, summary: `listou ${path.basename(dir)} (${entries.length} itens)` };
     }
 
     return { ok: false, text: `Ferramenta desconhecida: ${name}`, summary: `desconhecida: ${name}` };

@@ -93,7 +93,7 @@ export class App {
         for (const c of calls) {
           const result = await executeTool(c.name, c.arguments, { cwd: process.cwd(), signal: this.abort.signal });
           this.log(result.ok ? 'info' : 'warn', `tool ${c.name}: ${result.summary}`);
-          this.messages.push({ role: 'tool', tool: c.name, argsText: c.arguments || '', output: result.summary, ok: result.ok });
+          this.messages.push({ role: 'tool', tool: c.name, detail: result.detail || result.summary, output: result.summary, ok: result.ok });
           this.agent.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
           this.changed();
         }
@@ -246,10 +246,9 @@ export class App {
       for (const m of this.messages) {
         if (content.length) content.push('');
         if (m.role === 'tool') {
-          content.push(theme.violet('⚡ ' + safe(m.tool)) + (m.ok ? theme.muted(' · ok') : theme.red(' · erro')));
-          const argLine = (m.argsText || '').replace(/\s+/g, ' ').trim();
-          if (argLine) content.push(...wrap(argLine, cw - 7).map(l => '     ' + theme.muted(l)));
-          content.push(...wrap(m.output || '', cw - 7).slice(0, 8).map(l => '     ' + theme.muted('│ ' + l)));
+          content.push('   ' + theme.lilac('▸ ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')));
+          if (m.detail) content.push(...wrap(m.detail, cw - 6).map(l => '   ' + l));
+          if (m.output && m.output !== m.detail) content.push('   ' + theme.border('└') + theme.muted(' ' + m.output));
           continue;
         }
         const badge = m.role === 'user' ? theme.pink('VOCÊ') : theme.lilac(safe(m.model));
@@ -424,7 +423,7 @@ async function runOnce(parsed) {
       messages.push({ role: 'assistant', content: null, tool_calls: calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
       for (const c of calls) {
         const result = await executeTool(c.name, c.arguments, { cwd: process.cwd() });
-        process.stderr.write(`  ${theme.violet('⚡ ' + c.name)} ${theme.muted(result.summary)}\n`);
+        process.stderr.write('  ' + theme.lilac('▸ ' + c.name) + theme.muted('  ' + result.summary) + '\n');
         messages.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
       }
       process.stdout.write('\n');
@@ -478,7 +477,7 @@ async function runOnce(parsed) {
       messages.push({ role: 'assistant', content: null, tool_calls: calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments || '{}' } })) });
       for (const c of calls) {
         const result = await executeTool(c.name, c.arguments, { cwd: process.cwd() });
-        process.stdout.write('\n' + theme.violet(`  ⚡ ${c.name}`) + theme.muted(`  ${result.summary}`) + '\n');
+        process.stdout.write('\n' + theme.lilac(`  ▸ ${c.name}`) + theme.muted(`  ${result.summary}`) + '\n');
         messages.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
       }
       process.stdout.write('\n');
