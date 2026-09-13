@@ -282,15 +282,18 @@ export class App {
     return finish();
   }
   // Parseia eventos de mouse SGR (\x1b[<b;x;yM) vindos do stdin raw e alterna
-  // a expansão dos blocos de ferramenta clicados. Chunks de mouse suprimem os
-  // keypresses correspondentes para não vazar lixo na entrada.
+  // a expansão dos blocos de ferramenta clicados. A sequência pode chegar
+  // partida em vários chunks: tudo vai para um buffer, e enquanto houver
+  // sequência de mouse em curso os keypresses correspondentes são suprimidos
+  // (com timeout de segurança, para nunca engolir digitação real).
   rawData(chunk) {
-    const s = chunk.toString();
+    this.mouseBuf += chunk.toString();
     let mouse = false;
-    const re = /\x1b\[<(\d+);(\d+);(\d+)[Mm]/g;
-    let m;
-    while ((m = re.exec(s))) {
+    for (;;) {
+      const m = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(this.mouseBuf);
+      if (!m) break;
       mouse = true;
+      this.mouseBuf = this.mouseBuf.slice(m.index + m[0].length);
       if (m[1] === '0') {
         const row = parseInt(m[3], 10) - 1;
         for (const h of this.toolHits) {
@@ -298,7 +301,19 @@ export class App {
         }
       }
     }
-    this.suppressKeypress = mouse;
+    // começo de sequência ainda incompleto → mantém suprimindo
+    const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf);
+    if (mouse || partial) {
+      this.suppressKeypress = true;
+      clearTimeout(this._mouseFlush);
+      if (!partial) {
+        this._mouseFlush = setTimeout(() => { this.mouseBuf = ''; this.suppressKeypress = false; }, 30);
+      }
+    } else if (this.mouseBuf) {
+      // não era mouse: devolve nada, só libera o teclado
+      this.mouseBuf = '';
+      this.suppressKeypress = false;
+    }
   }
   window(lines, capacity, tab) {
     this.scroll[tab] = Math.min(this.scroll[tab], Math.max(0, lines.length - capacity));
