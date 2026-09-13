@@ -13,7 +13,8 @@ export class App {
     this.client = client; this.changed = changed;
     this.screen = 'landing'; this.tab = 0; this.models = ['glm-4.7', 'x-preview-l']; this.model = client.model;
     this.modelSource = 'fallback'; this.picker = false; this.choice = 0;
-    this.messages = []; this.logs = []; this.filter = 'all'; this.scroll = [0, 0];
+    this.messages = []; this.agent = []; this.logs = []; this.filter = 'all'; this.scroll = [0, 0];
+    this.toolHits = []; this.suppressKeypress = false; this.mouseBuf = '';
     this.input = []; this.cursor = 0; this.busy = false; this.status = 'Pronto';
     this.lifetime = new AbortController();
   }
@@ -93,7 +94,7 @@ export class App {
         for (const c of calls) {
           const result = await executeTool(c.name, c.arguments, { cwd: process.cwd(), signal: this.abort.signal });
           this.log(result.ok ? 'info' : 'warn', `tool ${c.name}: ${result.summary}`);
-          this.messages.push({ role: 'tool', tool: c.name, detail: result.detail || result.summary, output: result.summary, ok: result.ok });
+          this.messages.push({ role: 'tool', tool: c.name, detail: result.detail || result.summary, output: result.summary, ok: result.ok, expanded: false });
           this.agent.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
           this.changed();
         }
@@ -116,6 +117,7 @@ export class App {
     this.status = 'Pronto'; this.changed();
   }
   key(ch, key = {}) {
+    if (this.suppressKeypress) return;
     const n = key.name;
     if (key.ctrl && n === 'c') return 'exit';
     // Ctrl+D só sai com a entrada vazia, para não perder texto por acidente.
@@ -242,22 +244,34 @@ export class App {
       put(rows - 2, '');
       put(rows - 1, theme.muted(cw < 60
         ? (this.busy ? 'Esc cancelar · F2 modelo · Tab Logs' : 'Enter enviar · F2 modelo · Tab Logs')
-        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · F2 modelo · Tab Logs · Ctrl+C sair`));
+        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs`));
+      const hitMeta = [];
+      const L = (line, hit = null) => { content.push(line); hitMeta.push(hit); };
       for (const m of this.messages) {
-        if (content.length) content.push('');
+        if (content.length) L('');
         if (m.role === 'tool') {
-          content.push('   ' + theme.lilac('▸ ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')));
-          if (m.detail) content.push(...wrap(m.detail, cw - 6).map(l => '   ' + l));
-          if (m.output && m.output !== m.detail) content.push('   ' + theme.border('└') + theme.muted(' ' + m.output));
+          const arrow = m.expanded ? '▾' : '▸';
+          L('   ' + theme.lilac(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), m);
+          if (m.expanded) {
+            if (m.detail) wrap(m.detail, cw - 6).forEach(l => L('   ' + l));
+            if (m.output && m.output !== m.detail) L('   ' + theme.border('└') + theme.muted(' ' + m.output));
+          }
           continue;
         }
         const badge = m.role === 'user' ? theme.pink('VOCÊ') : theme.lilac(safe(m.model));
-        content.push(badge);
-        if (m.reasoning) content.push(...wrap('Raciocínio · ' + m.reasoning, cw - 5).map(l => theme.muted('   │ ' + l)));
-        content.push(...markdown(m.content || (this.busy && m === this.messages.at(-1) ? `${spinnerFrame()} Aguardando resposta…` : ''), cw - 5).map(l => '     ' + l));
-        if (m.error && m !== this.messages.at(-1)) content.push(...wrap(errorSummary(m.error), cw - 5).map(l => theme.red('     ' + l)));
+        L(badge);
+        if (m.reasoning) wrap('Raciocínio · ' + m.reasoning, cw - 5).forEach(l => L(theme.muted('   │ ' + l)));
+        markdown(m.content || (this.busy && m === this.messages.at(-1) ? `${spinnerFrame()} Aguardando resposta…` : ''), cw - 5).forEach(l => L('     ' + l));
+        if (m.error && m !== this.messages.at(-1)) wrap(errorSummary(m.error), cw - 5).forEach(l => L(theme.red('     ' + l)));
       }
-      this.window(content, Math.max(1, composerY - 4), 0).forEach((line, i) => put(3 + i, line));
+      const cap = Math.max(1, composerY - 4);
+      const startIdx = Math.max(0, content.length - cap - this.scroll[0]);
+      this.toolHits = [];
+      content.slice(startIdx, startIdx + cap).forEach((line, i) => {
+        put(3 + i, line);
+        const hit = hitMeta[startIdx + i];
+        if (hit) this.toolHits.push({ row: 3 + i, msg: hit });
+      });
       composer.forEach((line, i) => put(composerY + i, line));
       const state = this.busy ? `${spinnerFrame()} Respondendo…` : error ? 'Interrompido' : safe(this.status);
       const meta = ` · ${state}`;
@@ -266,6 +280,25 @@ export class App {
       status.forEach((line, i) => put(composerY + composer.length + 1 + i, theme.red('  ' + line)));
     }
     return finish();
+  }
+  // Parseia eventos de mouse SGR (\x1b[<b;x;yM) vindos do stdin raw e alterna
+  // a expansão dos blocos de ferramenta clicados. Chunks de mouse suprimem os
+  // keypresses correspondentes para não vazar lixo na entrada.
+  rawData(chunk) {
+    const s = chunk.toString();
+    let mouse = false;
+    const re = /\x1b\[<(\d+);(\d+);(\d+)[Mm]/g;
+    let m;
+    while ((m = re.exec(s))) {
+      mouse = true;
+      if (m[1] === '0') {
+        const row = parseInt(m[3], 10) - 1;
+        for (const h of this.toolHits) {
+          if (h.row === row) { h.msg.expanded = !h.msg.expanded; this.changed(); break; }
+        }
+      }
+    }
+    this.suppressKeypress = mouse;
   }
   window(lines, capacity, tab) {
     this.scroll[tab] = Math.min(this.scroll[tab], Math.max(0, lines.length - capacity));
@@ -553,16 +586,17 @@ export async function run() {
     process.stdin.setRawMode(Boolean(wasRaw)); process.stdin.pause();
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'exit']) process.off(signal, stop);
     process.off('uncaughtExceptionMonitor', stop);
-    try { writeSync(1, '\x1b[0m\x1b[?25h\x1b[?1049l'); } catch {}
+    try { writeSync(1, '\x1b[0m\x1b[?25h\x1b[?1049l\x1b[?1000l'); } catch {}
   }
   function onKey(ch, key) { if (app.key(ch, key) === 'exit') stop(); }
   function resize() { previous = []; render(); }
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'exit']) process.on(signal, stop);
   process.on('uncaughtExceptionMonitor', stop);
+  process.stdin.on('data', chunk => app.rawData(chunk));
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true); process.stdin.resume();
   process.stdin.on('keypress', onKey); process.stdout.on('resize', resize);
-  process.stdout.write('\x1b[?1049h\x1b[2J\x1b[?25l');
+  process.stdout.write('\x1b[?1049h\x1b[2J\x1b[?25l\x1b[?1000h');
   render(); void app.refreshModels();
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

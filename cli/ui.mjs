@@ -134,9 +134,14 @@ export function errorSummary(error) {
 }
 export function markdown(text, w) {
   let code = false;
+  // destaque inline: `código` em lilás e **negrito** em bold, aplicado antes
+  // do wrap (width() ignora ANSI, então a quebra de linha continua correta).
+  const inline = s => s
+    .replace(/`([^`]+)`/g, (_, c) => theme.lilac(c))
+    .replace(/\*\*([^*]+)\*\*/g, (_, b) => `\x1b[1m${b}\x1b[22m`);
   return safe(text).split('\n').flatMap(line => {
     if (/^\s*```/.test(line)) { code = !code; return [theme.muted(fit(line, w))]; }
     const paint = code ? theme.lilac : /^#{1,6} /.test(line) ? theme.violet : s => s;
-    return wrap(line, w).map(paint);
+    return wrap(inline(line), w).map(paint);
   });
 }
