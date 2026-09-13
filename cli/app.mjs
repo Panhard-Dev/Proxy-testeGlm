@@ -400,7 +400,7 @@ export class App {
         ['Memória (RSS)', this.fmtMb(this.rss)],
         ['CPU', this.cpu.toFixed(1) + '%'],
         ['PID', String(process.pid)],
-        ['Sessão', `${mins0(up)}`],
+        ['Sessão', up < 1 ? 'menos de 1 min' : up + ' min'],
         ['Node.js', process.version],
         ['Requisições', String(this.stats.requests)],
         ['Tokens', String(this.stats.prompt + this.stats.completion)],
