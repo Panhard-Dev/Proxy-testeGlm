@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepsProxy — Dashboard</title>
+<style>
+  :root {
+    --bg: #26272a;
+    --bg-side: #1c1d1f;
+    --bg-card: #2f3134;
+    --bg-hover: #38393d;
+    --border: #3a3b3f;
+    --accent: #4d6bfe;
+    --accent-2: #7a93ff;
+    --accent-soft: rgba(77,107,254,.14);
+    --text: #ececf1;
+    --text-dim: #93949c;
+    --ok: #3ecf8e;
+    --warn: #f5a623;
+    --err: #f0506e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 800px at 80% -10%, rgba(77,107,254,.08), transparent 60%), var(--bg);
+    color: var(--text); height: 100vh; display: flex; overflow: hidden;
+  }
+  svg { display: block; }
+  .ico { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; flex-shrink: 0; }
+
+  /* ═══ LOCK SCREEN ═══ */
+  #lock {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    align-items: center; justify-content: center;
+    background: radial-gradient(900px 600px at 50% 20%, rgba(77,107,254,.12), transparent 65%), var(--bg-side);
+    backdrop-filter: blur(6px);
+  }
+  #lock.open { display: flex; }
+  .lock-card {
+    width: 360px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px;
+    padding: 38px 34px 30px; box-shadow: 0 24px 80px rgba(0,0,0,.5); text-align: center;
+    animation: rise .35s cubic-bezier(.2,.9,.3,1);
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+  .lock-logo {
+    width: 58px; height: 58px; border-radius: 16px; margin: 0 auto 16px;
+    background: linear-gradient(135deg, var(--accent), #3551d8);
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px rgba(77,107,254,.35);
+  }
+  .lock-logo svg { width: 30px; height: 30px; color: #fff; }
+  .lock-card h1 { font-size: 19px; margin-bottom: 4px; }
+  .lock-card p { color: var(--text-dim); font-size: 12.5px; margin-bottom: 22px; }
+  .field { position: relative; margin-bottom: 12px; }
+  .field input {
+    width: 100%; padding: 13px 14px 13px 42px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 14px; outline: none; transition: border .15s;
+  }
+  .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field .lead { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-dim); }
+  .lock-btn {
+    width: 100%; padding: 13px; border-radius: 12px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, var(--accent), #3551d8); color: #fff; font-size: 14px; font-weight: 600;
+    font-family: inherit; margin-top: 6px; transition: .15s;
+  }
+  .lock-btn:hover { filter: brightness(1.1); }
+  .lock-err { color: var(--err); font-size: 12px; margin-top: 12px; min-height: 16px; text-align: left; }
+
+  /* ═══ APP ═══ */
+  #app { display: none; width: 100%; }
+  #app.open { display: flex; }
+  .sidebar {
+    width: 232px; min-width: 232px; background: var(--bg-side); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 20px 12px 14px;
+  }
+  .logo { display: flex; align-items: center; gap: 11px; padding: 4px 8px 24px; }
+  .logo-badge {
+    width: 38px; height: 38px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), #3551d8);
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(77,107,254,.3);
+  }
+  .logo-badge svg { width: 21px; height: 21px; color: #fff; }
+  .logo h1 { font-size: 16.5px; font-weight: 700; letter-spacing: .2px; }
+  .logo small { color: var(--text-dim); font-size: 11px; display: block; font-weight: 400; }
+  .nav-label { font-size: 10px; letter-spacing: 1.2px; color: var(--text-dim); padding: 6px 12px 8px; text-transform: uppercase; }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 11px;
+    cursor: pointer; color: var(--text-dim); font-size: 14px; margin-bottom: 3px; transition: .15s;
+    border: none; background: none; width: 100%; text-align: left; font-family: inherit; position: relative;
+  }
+  .nav-item:hover { background: var(--bg-hover); color: var(--text); }
+  .nav-item.active { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: -12px; top: 20%; bottom: 20%; width: 3px; border-radius: 3px; background: var(--accent);
+  }
+  .nav-item.active .ico { color: var(--accent); }
+  .sidebar-footer { margin-top: auto; padding: 12px 10px 4px; border-top: 1px solid var(--border); }
+  .session-pill { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(62,207,142,.18); }
+  .dot.err { background: var(--err); box-shadow: 0 0 0 3px rgba(240,80,110,.18); }
+  .ver { font-size: 10.5px; color: #5b5c63; }
+
+  .main { flex: 1; overflow-y: auto; padding: 30px 38px; }
+  .page { display: none; max-width: 1080px; margin: 0 auto; }
+  .page.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
+  .page h2 { font-size: 22px; letter-spacing: -.2px; }
+  .page .sub { color: var(--text-dim); font-size: 13px; margin-top: 5px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .card {
+    background: linear-gradient(180deg, var(--bg-card), rgba(47,49,52,.6));
+    border: 1px solid var(--border); border-radius: 16px; padding: 18px; position: relative; overflow: hidden;
+  }
+  .card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .card-ico { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .card-ico .ico { width: 16px; height: 16px; }
+  .ci-blue { background: var(--accent-soft); color: var(--accent-2); }
+  .ci-green { background: rgba(62,207,142,.14); color: var(--ok); }
+  .ci-red { background: rgba(240,80,110,.14); color: var(--err); }
+  .ci-amber { background: rgba(245,166,35,.14); color: var(--warn); }
+  .card .label { color: var(--text-dim); font-size: 12px; font-weight: 500; }
+  .card .value { font-size: 27px; font-weight: 700; letter-spacing: -.5px; }
+  .card .hint { font-size: 11.5px; color: var(--text-dim); margin-top: 5px; }
+  .value.ok { color: var(--ok); } .value.err { color: var(--err); } .value.accent { color: var(--accent-2); }
+
+  .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; margin-bottom: 22px; }
+  .panel h3 { font-size: 13.5px; margin-bottom: 16px; color: var(--text-dim); font-weight: 600; letter-spacing: .3px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge.ok { background: rgba(62,207,142,.14); color: var(--ok); }
+  .badge.err { background: rgba(240,80,110,.14); color: var(--err); }
+  .badge.off { background: rgba(245,166,35,.14); color: var(--warn); }
+  .empty { color: var(--text-dim); text-align: center; padding: 36px; font-size: 13px; }
+
+  /* logs */
+  .toolbar { display: flex; gap: 8px; margin-bottom: 14px; align-items: center; }
+  .chip { padding: 7px 15px; border-radius: 20px; border: 1px solid var(--border); background: none; color: var(--text-dim); cursor: pointer; font-size: 12px; font-family: inherit; transition: .15s; }
+  .chip:hover { color: var(--text); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .logbox {
+    background: #141417; border: 1px solid var(--border); border-radius: 14px; padding: 12px;
+    font-family: "SF Mono", ui-monospace, Consolas, monospace; font-size: 12px; max-height: 64vh; overflow-y: auto;
+  }
+  .logline { padding: 4px 10px; border-radius: 7px; display: flex; gap: 12px; line-height: 1.55; border-left: 2px solid transparent; }
+  .logline:hover { background: rgba(255,255,255,.03); }
+  .logline .t { color: #5b5c63; flex-shrink: 0; }
+  .logline.info { color: #c9c9d1; }
+  .logline.warn { color: var(--warn); border-left-color: var(--warn); }
+  .logline.error { color: var(--err); border-left-color: var(--err); }
+
+  /* accounts */
+  .account-row {
+    display: flex; align-items: center; gap: 16px; padding: 18px;
+    background: linear-gradient(180deg, var(--bg-card), rgba(47,49,52,.6));
+    border: 1px solid var(--border); border-radius: 16px; margin-bottom: 14px;
+  }
+  .avatar { width: 46px; height: 46px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #3551d8); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+  .account-info { flex: 1; }
+  .account-info .email { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .account-info .meta { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .btn {
+    padding: 10px 18px; border-radius: 11px; border: none; cursor: pointer; font-size: 13px; font-weight: 600;
+    background: var(--accent); color: #fff; font-family: inherit; transition: .15s;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn .ico { width: 15px; height: 15px; }
+  .btn:hover { filter: brightness(1.12); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+  /* modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; padding: 28px; width: 390px; box-shadow: 0 24px 80px rgba(0,0,0,.5); animation: rise .25s cubic-bezier(.2,.9,.3,1); }
+  .modal h3 { margin-bottom: 4px; }
+  .modal .msub { color: var(--text-dim); font-size: 12.5px; margin-bottom: 14px; }
+  .modal label { display: block; font-size: 12px; color: var(--text-dim); margin: 12px 0 6px; }
+  .modal input {
+    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 14px; outline: none;
+  }
+  .modal input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .modal .actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
+  .modal .status { font-size: 12.5px; margin-top: 12px; min-height: 16px; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+  .toast {
+    position: fixed; bottom: 26px; right: 26px; background: var(--bg-card); border: 1px solid var(--border);
+    padding: 14px 20px; border-radius: 14px; font-size: 13px; display: none; z-index: 60; box-shadow: 0 14px 44px rgba(0,0,0,.45);
+  }
+</style>
+</head>
+<body>
+
+<!-- DeepSeek whale (official brand path via simple-icons, ISC) -->
+<svg width="0" height="0" style="position:absolute"><symbol id="ds-whale" viewBox="0 0 24 24"><path fill="currentColor" d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/></symbol></svg>
+
+<!-- ═══ LOCK SCREEN ═══ -->
+<div id="lock" class="open">
+  <div class="lock-card">
+    <div class="lock-logo">
+      <svg viewBox="0 0 24 24"><use href="#ds-whale"/></svg>
+    </div>
+    <h1>DeepsProxy</h1>
+    <p>Digite a senha do painel para acessar</p>
+    <div class="field">
+      <span class="lead"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+      <input id="lock-key" type="password" placeholder="Senha do painel" autocomplete="off">
+    </div>
+    <button class="lock-btn" id="lock-go">Desbloquear painel</button>
+    <div class="lock-err" id="lock-err"></div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:14px">Senha padrão: <code>123456</code> — troque em <code>.env → ADMIN_PASSWORD</code></div>
+  </div>
+</div>
+
+<!-- ═══ APP ═══ -->
+<div id="app">
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-badge">
+      <svg viewBox="0 0 24 24"><use href="#ds-whale"/></svg>
+    </div>
+    <h1>DeepsProxy<small>dashboard</small></h1>
+  </div>
+  <div class="nav-label">Monitoramento</div>
+  <button class="nav-item active" data-page="usage">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+    Usage
+  </button>
+  <button class="nav-item" data-page="logs">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 10 10 11"/></svg>
+    Logs
+  </button>
+  <div class="nav-label">Configuração</div>
+  <button class="nav-item" data-page="models">
+    <svg class="ico" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+    Modelos
+  </button>
+  <button class="nav-item" data-page="accounts">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    Contas
+  </button>
+  <div class="sidebar-footer">
+    <div class="session-pill"><span class="dot" id="session-dot"></span><span id="session-label">verificando…</span></div>
+    <div class="ver">DeepsProxy · proxy local v1.0</div>
+  </div>
+</nav>
+
+<main class="main">
+
+  <!-- ═══ USAGE ═══ -->
+  <section class="page active" id="page-usage">
+    <div class="page-head">
+      <div>
+        <h2>Usage</h2>
+        <p class="sub">Consumo de tokens e requisições desde o último restart do servidor.</p>
+      </div>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-top">
+          <div class="card-ico ci-blue"><svg class="ico" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+          <div class="label">Requisições</div>
+        </div>
+        <div class="value accent" id="u-req">—</div>
+        <div class="hint" id="u-req-hint"></div>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <div class="card-ico ci-amber"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+          <div class="label">Tokens totais</div>
+        </div>
+        <div class="value" id="u-tok">—</div>
+        <div class="hint" id="u-tok-hint"></div>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <div class="card-ico ci-green"><svg class="ico" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="label">Sucesso</div>
+        </div>
+        <div class="value ok" id="u-ok">—</div>
+        <div class="hint" id="u-ok-hint"></div>
+      </div>
+      <div class="card">
+        <div class="card-top">
+          <div class="card-ico ci-red"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+          <div class="label">Falhas</div>
+        </div>
+        <div class="value err" id="u-fail">—</div>
+        <div class="hint" id="u-fail-hint"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Requisições — últimas 24h</h3>
+      <div id="chart"></div>
+      <div style="display:flex;gap:18px;margin-top:10px;font-size:12px;color:var(--text-dim)">
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent);display:inline-block"></span>sucesso</span>
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--err);display:inline-block"></span>falha</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Por modelo</h3>
+      <table>
+        <thead><tr><th>Modelo</th><th class="num">Requisições</th><th class="num">Sucesso</th><th class="num">Prompt tok.</th><th class="num">Completion tok.</th></tr></thead>
+        <tbody id="t-models"><tr><td colspan="5" class="empty">sem dados ainda</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3>Requisições recentes</h3>
+      <table>
+        <thead><tr><th>Quando</th><th>Modelo</th><th>Status</th><th class="num">Tokens</th><th class="num">Duração</th><th>Detalhe</th></tr></thead>
+        <tbody id="t-recent"><tr><td colspan="6" class="empty">sem dados ainda</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ LOGS ═══ -->
+  <section class="page" id="page-logs">
+    <div class="page-head">
+      <div>
+        <h2>Logs</h2>
+        <p class="sub">Saída do servidor em tempo real — últimas 800 linhas, buffer em memória.</p>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="chip active" data-filter="all">Tudo</button>
+      <button class="chip" data-filter="info">Info</button>
+      <button class="chip" data-filter="warn">Avisos</button>
+      <button class="chip" data-filter="error">Erros</button>
+      <span style="flex:1"></span>
+      <label style="font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="auto" checked> auto-refresh
+      </label>
+      <button class="btn ghost" onclick="logEntries=[];renderLogs()">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        Limpar vista
+      </button>
+    </div>
+    <div class="logbox" id="logbox"><div class="empty">carregando…</div></div>
+  </section>
+
+  <!-- ═══ MODELOS ═══ -->
+  <section class="page" id="page-models">
+    <div class="page-head">
+      <div>
+        <h2>Modelos</h2>
+        <p class="sub">Teste cada modelo com uma chamada real e copie o ID para usar nos seus clientes.</p>
+      </div>
+      <button class="btn" id="test-all-btn" onclick="testAllModels()">
+        <svg class="ico" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Testar todos
+      </button>
+    </div>
+    <div id="models-list"><div class="panel"><div class="empty">carregando…</div></div></div>
+  </section>
+
+  <!-- ═══ CONTAS ═══ -->
+  <section class="page" id="page-accounts">
+    <div class="page-head">
+      <div>
+        <h2>Contas</h2>
+        <p class="sub">Sessões do navegador no chat.deepseek.com (um perfil ativo por vez).</p>
+      </div>
+      <button class="btn" onclick="openModal()">
+        <svg class="ico" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Empilhar conta
+      </button>
+    </div>
+    <div id="accounts-list"></div>
+    <p style="color:var(--text-dim);font-size:12px;margin-top:16px">
+      O login automático também é feito pelo servidor quando a sessão expira, usando as credenciais mais recentes (salvas apenas no <code>.env</code> local).
+    </p>
+  </section>
+</main>
+</div>
+
+<!-- modal login -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>Logar no DeepSeek</h3>
+    <div class="msub">As credenciais ficam salvas apenas no <code>.env</code> local.</div>
+    <label>Email</label>
+    <input id="m-email" type="email" placeholder="voce@email.com">
+    <label>Senha</label>
+    <input id="m-pass" type="password" placeholder="••••••••">
+    <div class="status" id="m-status"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn" id="m-go" onclick="doLogin()">Logar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── auth (lock screen, sem prompt nativo) ──
+let apiKey = localStorage.getItem('deepsproxy_key') || '';
+const lock = document.getElementById('lock');
+
+function openLock() { lock.classList.add('open'); document.getElementById('app').classList.remove('open'); setTimeout(() => document.getElementById('lock-key').focus(), 60); }
+function closeLock() { lock.classList.remove('open'); document.getElementById('app').classList.add('open'); }
+
+async function tryKey(k) {
+  const res = await fetch('/admin/api/usage', { headers: { Authorization: 'Bearer ' + k } });
+  return res.status !== 401;
+}
+
+async function unlock() {
+  const k = document.getElementById('lock-key').value.trim();
+  const err = document.getElementById('lock-err');
+  if (!k) { err.textContent = 'Digite a API key.'; return; }
+  err.textContent = 'Verificando…'; err.style.color = 'var(--text-dim)';
+  if (await tryKey(k)) {
+    apiKey = k; localStorage.setItem('deepsproxy_key', k);
+    err.textContent = '';
+    closeLock(); boot();
+  } else {
+    err.textContent = 'Senha incorreta.'; err.style.color = 'var(--err)';
+  }
+}
+document.getElementById('lock-go').onclick = unlock;
+document.getElementById('lock-key').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey, ...(opts.headers || {}) } });
+  if (res.status === 401) { openLock(); throw new Error('API key inválida'); }
+  return res.json();
+}
+
+// ── navigation ──
+document.querySelectorAll('.nav-item').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('page-' + b.dataset.page).classList.add('active');
+});
+
+const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n ?? 0);
+const ago = ts => { const s = Math.round((Date.now()-ts)/1000); return s<60 ? s+'s atrás' : s<3600 ? Math.round(s/60)+'min atrás' : Math.round(s/3600)+'h atrás'; };
+const clock = ts => new Date(ts).toLocaleTimeString('pt-BR');
+
+function toast(msg, ok = true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block'; t.style.borderColor = ok ? 'var(--ok)' : 'var(--err)';
+  setTimeout(() => t.style.display = 'none', 3500);
+}
+
+// ── usage ──
+async function loadUsage() {
+  try {
+    const u = await api('/admin/api/usage');
+    document.getElementById('u-req').textContent = fmt(u.totalRequests);
+    document.getElementById('u-req-hint').textContent = 'uptime ' + Math.round(u.uptimeMs/60000) + ' min';
+    document.getElementById('u-tok').textContent = fmt(u.totalTokens);
+    document.getElementById('u-tok-hint').textContent = fmt(u.totalPromptTokens) + ' prompt · ' + fmt(u.totalCompletionTokens) + ' completion';
+    document.getElementById('u-ok').textContent = u.totalRequests ? Math.round(100*u.totalOk/u.totalRequests)+'%' : '—';
+    document.getElementById('u-ok-hint').textContent = u.totalOk + ' requisições';
+    document.getElementById('u-fail').textContent = fmt(u.totalFailed);
+    document.getElementById('u-fail-hint').textContent = u.totalFailed ? 'última: ' + (u.recent.find(r=>!r.ok)?.error || '?').slice(0,36) : 'nenhuma falha';
+
+    const dot = document.getElementById('session-dot'), lab = document.getElementById('session-label');
+    dot.className = 'dot' + (u.session.ok ? '' : ' err');
+    lab.textContent = u.session.ok ? 'sessão ativa' : 'sessão expirada';
+
+    // SVG chart with rounded bars + gridlines
+    const W = 1000, H = 190, PAD = 8, max = Math.max(1, ...u.hourly);
+    const n = u.hourly.length, step = (W - PAD*2) / n, bw = Math.min(26, step * 0.55);
+    let bars = '', grid = '';
+    for (let g = 1; g <= 3; g++) {
+      const y = PAD + (H - PAD*2) * g / 4;
+      grid += `<line x1="${PAD}" y1="${y}" x2="${W-PAD}" y2="${y}" stroke="rgba(255,255,255,.05)" stroke-width="1"/>`;
+    }
+    u.hourly.forEach((ok, i) => {
+      const f = u.hourlyFailed[i];
+      const x = PAD + i*step + (step-bw)/2;
+      const hOk = Math.max(ok ? 4 : 0, (H - PAD*2) * ok / max);
+      const hF = Math.max(f ? 4 : 0, (H - PAD*2) * f / max);
+      const base = H - PAD;
+      if (f) bars += `<rect x="${x}" y="${base - hF}" width="${bw}" height="${hF}" rx="3" fill="#f0506e" opacity=".9"><title>${clock(Date.now()-(23-i)*3600000).slice(0,5)} · ${f} falha(s)</title></rect>`;
+      if (ok) bars += `<rect x="${x}" y="${base - hOk}" width="${bw}" height="${hOk}" rx="3" fill="#4d6bfe"><title>${clock(Date.now()-(23-i)*3600000).slice(0,5)} · ${ok} ok</title></rect>`;
+    });
+    const labels = [0, 6, 12, 18, 23].map(i => {
+      const x = PAD + i*step + step/2;
+      return `<text x="${x}" y="${H - 2}" fill="#93949c" font-size="10" text-anchor="middle">${String((24 - (23 - i)) % 24).padStart(2,'0')}h</text>`;
+    }).join('');
+    document.getElementById('chart').innerHTML =
+      `<svg viewBox="0 0 ${W} ${H+14}" style="width:100%;height:auto">${grid}${bars}${labels}</svg>`;
+
+    const models = Object.entries(u.perModel);
+    document.getElementById('t-models').innerHTML = models.length
+      ? models.map(([m, s]) => `<tr><td><b>${m}</b></td><td class="num">${s.requests}</td><td class="num">${s.ok}</td><td class="num">${fmt(s.promptTokens)}</td><td class="num">${fmt(s.completionTokens)}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="empty">sem dados ainda</td></tr>';
+
+    document.getElementById('t-recent').innerHTML = u.recent.length
+      ? u.recent.map(r => `<tr>
+          <td title="${new Date(r.ts).toLocaleString('pt-BR')}">${ago(r.ts)}</td>
+          <td><b>${r.model}</b></td>
+          <td><span class="badge ${r.ok?'ok':'err'}">${r.ok?'ok':'erro'}</span></td>
+          <td class="num">${fmt(r.promptTokens + r.completionTokens)}</td>
+          <td class="num">${(r.ms/1000).toFixed(1)}s</td>
+          <td style="color:var(--text-dim);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.error || ''}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" class="empty">sem dados ainda</td></tr>';
+  } catch (e) { if (e.message !== 'API key inválida') console.error(e); }
+}
+
+// ── logs ──
+let logEntries = [], logFilter = 'all', lastLogId = 0;
+document.querySelectorAll('.chip[data-filter]').forEach(c => c.onclick = () => {
+  document.querySelectorAll('.chip[data-filter]').forEach(x => x.classList.remove('active'));
+  c.classList.add('active'); logFilter = c.dataset.filter; renderLogs();
+});
+async function loadLogs() {
+  try {
+    const d = await api('/admin/api/logs?since=' + lastLogId);
+    if (d.entries.length) { logEntries.push(...d.entries); if (logEntries.length > 800) logEntries = logEntries.slice(-800); }
+    lastLogId = Math.max(lastLogId, d.lastId);
+    renderLogs();
+  } catch (e) { if (e.message !== 'API key inválida') console.error(e); }
+}
+function renderLogs() {
+  const box = document.getElementById('logbox');
+  const rows = logEntries.filter(l => logFilter === 'all' || l.level === logFilter);
+  box.innerHTML = rows.length
+    ? rows.map(l => `<div class="logline ${l.level}"><span class="t">${clock(l.ts)}</span><span>${l.text.replace(/</g,'&lt;')}</span></div>`).join('')
+    : '<div class="empty">nenhum log neste filtro</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── models ──
+let modelList = [];
+let modelResults = {}; // id -> { testing, ok, ms, reply, error }
+async function loadModels() {
+  try {
+    const d = await api('/admin/api/models');
+    modelList = d.data;
+    renderModels();
+  } catch (e) { if (e.message !== 'API key inválida') console.error(e); }
+}
+function renderModels() {
+  const box = document.getElementById('models-list');
+  box.innerHTML = modelList.map(m => {
+    const r = modelResults[m.id] || {};
+    const badge = r.testing ? '<span class="badge off">testando…</span>'
+      : r.ok === true ? `<span class="badge ok">ok · ${(r.ms/1000).toFixed(1)}s</span>`
+      : r.ok === false ? `<span class="badge err">erro</span>` : '';
+    const hint = r.testing ? 'fazendo chamada real…'
+      : r.ok === true ? `resposta: "${r.reply || ''}"`
+      : r.ok === false ? (r.error || 'falhou').slice(0, 90) : `${(m.context_length/1000)}k tokens · interno: ${m.internal}`;
+    return `
+    <div class="account-row">
+      <div class="card-ico ci-blue" style="width:40px;height:40px">
+        <svg class="ico" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>
+      </div>
+      <div class="account-info">
+        <div class="email">${m.display_name || m.id} ${badge}</div>
+        <div class="meta">ID: ${m.id} · ${hint}</div>
+      </div>
+      <button class="btn ghost" onclick="copyModel('${m.id}')" title="Copiar ID">
+        <svg class="ico" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copiar ID
+      </button>
+      <button class="btn" onclick="testModel('${m.id}')" ${r.testing ? 'disabled' : ''}>
+        <svg class="ico" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Testar
+      </button>
+    </div>`;
+  }).join('');
+}
+async function testModel(id) {
+  modelResults[id] = { testing: true };
+  renderModels();
+  try {
+    const r = await api('/admin/api/models/test', { method: 'POST', body: JSON.stringify({ model: id }) });
+    modelResults[id] = { ...r, testing: false };
+  } catch (e) {
+    modelResults[id] = { ok: false, error: e.message, testing: false };
+  }
+  renderModels();
+}
+async function testAllModels() {
+  const btn = document.getElementById('test-all-btn');
+  btn.disabled = true;
+  for (const m of modelList) await testModel(m.id);
+  btn.disabled = false;
+}
+function copyModel(id) {
+  navigator.clipboard.writeText(id).then(() => toast('ID copiado: ' + id)).catch(() => toast('Falha ao copiar', false));
+}
+
+// ── accounts (stack) ──
+async function loadAccounts() {
+  try {
+    const d = await api('/admin/api/accounts');
+    const list = d.accounts || [];
+    document.getElementById('accounts-list').innerHTML = list.length
+      ? list.map(a => {
+          const badge = a.active ? '<span class="badge ok">em uso</span>'
+            : a.status === 'cooldown' ? `<span class="badge off">cooldown ${a.cooldownMin}min</span>`
+            : a.status === 'logged_in' ? '<span class="badge ok">logada</span>'
+            : '<span class="badge err">sem sessão</span>';
+          const meta = a.status === 'cooldown' ? `aguardando cooldown (${a.cooldownReason || 'falha'})`
+            : a.status === 'never_logged' ? 'nunca logada'
+            : `ok · ${a.failures ? a.failures + ' falha(s)' : 'sem falhas'} · usada ${a.lastUsedAt ? ago(a.lastUsedAt) : 'nunca'}`;
+          return `
+        <div class="account-row">
+          <div class="avatar">${a.email[0].toUpperCase()}</div>
+          <div class="account-info">
+            <div class="email">${a.email} ${badge}</div>
+            <div class="meta">${meta}${a.lastError ? ' · ' + a.lastError.slice(0, 80) : ''}</div>
+          </div>
+          <button class="btn ghost" onclick="removeAccount('${a.email}')" title="Remover do stack">
+            <svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+          <button class="btn" onclick="openModal('${a.email}')">
+            <svg class="ico" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Renovar login
+          </button>
+        </div>`;
+        }).join('')
+      : `<div class="account-row"><div class="account-info"><div class="email">Nenhuma conta no stack</div>
+         <div class="meta">Use o botão "Logar com email e senha" para empilhar a primeira.</div></div></div>`;
+  } catch (e) { if (e.message !== 'API key inválida') console.error(e); }
+}
+
+async function removeAccount(email) {
+  if (!confirm(`Remover ${email} do stack?`)) return;
+  try { await api('/admin/api/accounts/remove', { method: 'POST', body: JSON.stringify({ email }) }); toast('Conta removida'); loadAccounts(); }
+  catch (e) { toast('Falha ao remover: ' + e.message, false); }
+}
+
+function openModal(email = '') {
+  document.getElementById('m-email').value = email;
+  document.getElementById('m-pass').value = '';
+  document.getElementById('m-status').textContent = '';
+  document.getElementById('modal').classList.add('open');
+  setTimeout(() => document.getElementById(email ? 'm-pass' : 'm-email').focus(), 60);
+}
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+async function doLogin() {
+  const email = document.getElementById('m-email').value.trim();
+  const password = document.getElementById('m-pass').value;
+  const st = document.getElementById('m-status'), btn = document.getElementById('m-go');
+  if (!email || !password) { st.textContent = 'Preenche email e senha.'; st.className = 'status err'; return; }
+  btn.disabled = true; st.textContent = 'Logando no DeepSeek… (até ~90s se houver verificação)'; st.className = 'status';
+  try {
+    const r = await api('/admin/api/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    st.textContent = r.ok ? r.message : (r.error || r.message);
+    st.className = 'status ' + (r.ok ? 'ok' : 'err');
+    if (r.ok) { toast('Login efetuado'); setTimeout(closeModal, 900); loadAccounts(); }
+  } catch (e) { st.textContent = e.message; st.className = 'status err'; }
+  btn.disabled = false;
+}
+
+// ── boot ──
+let booted = false;
+function boot() {
+  if (booted) return; booted = true;
+  // favicon = baleia no badge azul (gerado a partir do symbol)
+  try {
+    const d = document.querySelector('#ds-whale path').getAttribute('d');
+    const fav = document.createElement('link');
+    fav.rel = 'icon';
+    fav.href = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#4d6bfe"/><path fill="#fff" d="${d}"/></svg>`);
+    document.head.appendChild(fav);
+  } catch {}
+  loadUsage(); loadLogs(); loadAccounts(); loadModels();
+  setInterval(() => { loadUsage(); loadAccounts(); if (document.getElementById('auto').checked) loadLogs(); }, 3000);
+}
+
+(async () => {
+  if (apiKey && await tryKey(apiKey)) { closeLock(); boot(); }
+  else { localStorage.removeItem('deepsproxy_key'); apiKey = ''; openLock(); }
+})();
+</script>
+</body>
+</html>

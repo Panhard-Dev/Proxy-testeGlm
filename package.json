@@ -1,0 +1,21 @@
+{
+  "name": "laizy-cli",
+  "bin": {
+    "lz": "cli/app.mjs",
+    "lzcli": "cli/app.mjs",
+    "laizy-cli": "cli/app.mjs"
+  },
+  "version": "1.0.0",
+  "description": "Laizy CLI — terminal client for any OpenAI-compatible endpoint (TUI + non-interactive)",
+  "type": "module",
+  "main": "cli/app.mjs",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "cli": "node cli/app.mjs",
+    "test": "node test/cli.test.mjs",
+    "proxy": "node proxy/node_modules/.bin/tsx proxy/src/index.ts"
+  },
+  "dependencies": {}
+}

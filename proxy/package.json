@@ -1,0 +1,29 @@
+{
+  "name": "deepsproxy",
+  "version": "1.0.0",
+  "description": "Local OpenAI-compatible proxy for DeepSeek via Playwright, with robust streaming tool calling",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx tsx src/index.ts",
+    "login": "npx tsx src/login.ts",
+    "test": "tsx --test src/**/*.test.ts",
+    "build": "tsc"
+  },
+  "keywords": ["deepseek", "proxy", "openai", "tool-calling", "playwright"],
+  "author": "Panhard-Dev",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^2.0.2",
+    "dotenv": "^17.4.2",
+    "hono": "^4.12.18",
+    "playwright": "^1.59.1",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  },
+  "type": "module"
+}

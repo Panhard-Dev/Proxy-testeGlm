@@ -1,8 +1,5 @@
-# Built binaries (anchored to the repo root so they never shadow source
-# directories like cmd/token-collector/)
-/zai-api
-/zai-bridge
-/token-collector
+# Dependencies
+node_modules/
 
 # Windows build artifacts
 *.exe
@@ -11,11 +8,14 @@
 # Security scan output
 .mimosa/
 
-# Runtime artifacts (tokens.sqlite holds harvested device tokens — never commit)
-tokens.sqlite
-tokens.sqlite-shm
-tokens.sqlite-wal
+# Runtime artifacts
 *.log
 
 # Local environment
 .env
+proxy/node_modules/
+proxy/.env
+proxy/accounts.json
+proxy/accounts_storage/
+proxy/deepseek_profile/
+proxy/dist/
