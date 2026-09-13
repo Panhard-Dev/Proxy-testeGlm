@@ -222,8 +222,12 @@ try {
     assert.ok(!rendered.includes('█'));
     if (w >= 40) assert.match(rendered, /LAIZY/);
   }
-  app.key('/unknown'); await app.send(); assert.equal(app.screen, 'landing'); key('u', true);
-  app.key('/model'); await app.send(); assert.equal(app.screen, 'landing'); assert.ok(app.picker); key('escape');
+  app.key('/unknown'); await app.send(); assert.equal(app.screen, 'landing'); assert.ok(app.menu); key('escape');
+  assert.equal(app.input.join(''), ''); // Esc fecha o menu e limpa o comando
+  app.key('/model'); assert.ok(app.menu);
+  await app.send();
+  key('return'); assert.equal(app.menu?.mode, 'models', 'models abre lista inline no menu');
+  key('down'); key('return'); assert.equal(app.model, 'x-preview-l'); assert.equal(app.menu, null);
   key('tab'); assert.match(screen(), /não são logs do servidor/); key('tab');
   key('f2'); await new Promise(resolve => setTimeout(resolve, 30));
   key('down'); key('return'); assert.equal(app.model, 'x-preview-l');

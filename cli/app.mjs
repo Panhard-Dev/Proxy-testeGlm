@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { OpenAIClient } from './client.mjs';
 import { bootstrap } from './bootstrap.mjs';
 import { BUILTIN_TOOLS, AGENT_SYSTEM, executeTool } from './tools.mjs';
+import { loadHistory, saveSession, deleteSession, newSessionId } from './history.mjs';
 import { safe, chars, width, fit, wrap, markdown, errorSummary, theme, wordmark, reflection, background, block, errorBlock, spinnerFrame } from './ui.mjs';
 
 const TOOL_COLORS = {
@@ -26,6 +27,9 @@ export class App {
     this.toolHits = []; this.clickZones = []; this.suppressKeypress = false; this.mouseBuf = '';
     this.input = []; this.cursor = 0; this.busy = false; this.status = 'Pronto';
     this.lifetime = new AbortController();
+    this.menu = null; this.sessionId = null; this.saved = []; this.histChoice = 0;
+    this.stats = { requests: 0, prompt: 0, completion: 0, tools: 0, errors: 0, started: Date.now() };
+    this.modelStats = new Map();
   }
   log(level, message) {
     this.logs.push({ level, text: `${new Date().toLocaleTimeString()} [${level.toUpperCase()}] ${safe(message).slice(0, 1000)}` });
@@ -48,13 +52,29 @@ export class App {
       }
     } finally { this.loading = false; this.choice = Math.max(0, this.models.indexOf(this.model)); this.changed(); }
   }
+  menuItems() {
+    if (!this.menu) return [];
+    if (this.menu.mode === 'models') {
+      return this.models.map(m => ({ cmd: m, desc: 'modelo', run: () => { this.model = m; this.menu = null; this.input = []; this.cursor = 0; this.log('info', 'modelo: ' + m); } }));
+    }
+    const q = this.input.join('').slice(1).trim().toLowerCase();
+    const all = [
+      { cmd: 'models', desc: 'trocar de modelo', run: () => { this.menu = { mode: 'models', choice: 0 }; void this.refreshModels(); } },
+      { cmd: 'new', desc: 'novo chat', run: () => { this.menu = null; this.reset(); } },
+      { cmd: 'usage', desc: 'uso desta sessão', run: () => { this.menu = null; this.input = []; this.cursor = 0; this.screen = 'usage'; this.picker = false; } },
+      { cmd: 'historico', desc: 'conversas salvas', run: () => { this.menu = null; this.input = []; this.cursor = 0; this.screen = 'history'; this.saved = loadHistory(); this.histChoice = 0; } },
+      { cmd: 'quit', desc: 'sair', run: () => { this.quitRequested = true; } },
+    ];
+    return q ? all.filter(i => i.cmd.startsWith(q)) : all;
+  }
+  openMenu() { this.menu = this.menu || { mode: 'commands', choice: 0 }; this.menu.choice = 0; this.changed(); }
   async send() {
     const text = this.input.join('').trim();
     if (!text || this.busy) return;
     if (text === '/quit' || text === '/exit') return 'exit';
     if (text === '/model') { this.input = []; this.cursor = 0; this.picker = true; this.choice = this.models.indexOf(this.model); void this.refreshModels(); return; }
     if (text === '/new') { this.reset(); return; }
-    if (text.startsWith('/')) { this.status = 'Comandos: /model · /new · /quit'; this.changed(); return; }
+    if (text.startsWith('/')) { this.openMenu(); this.changed(); return; }
     this.screen = 'chat'; this.tab = 0;
     this.input = []; this.cursor = 0; this.scroll[0] = 0;
     // Histórico real do modelo (system + user + assistant com tool_calls + tool)
@@ -73,6 +93,7 @@ export class App {
     let turn = 0;
     try {
       while (turn++ < MAX_TURNS) {
+        this.stats.requests++;
         const payload = [{ role: 'system', content: AGENT_SYSTEM }, ...this.agent];
         const pending = new Map(); let sawTools = false;
         for await (const event of this.client.stream({ messages: payload, model: reply.model, signal: this.abort.signal, tools: BUILTIN_TOOLS, toolChoice: 'auto' })) {
@@ -90,6 +111,13 @@ export class App {
             if (tc.function?.arguments) cur.arguments += tc.function.arguments;
             pending.set(idx, cur);
           }
+          if (event.usage) {
+            this.stats.prompt += event.usage.prompt_tokens || 0;
+            this.stats.completion += event.usage.completion_tokens || 0;
+            const ms = this.modelStats.get(this.model) || { requests: 0, prompt: 0, completion: 0 };
+            ms.requests++; ms.prompt += event.usage.prompt_tokens || 0; ms.completion += event.usage.completion_tokens || 0;
+            this.modelStats.set(this.model, ms);
+          }
           if (event.finishReason === 'tool_calls') sawTools = true;
           this.changed();
         }
@@ -102,6 +130,7 @@ export class App {
         });
         for (const c of calls) {
           const result = await executeTool(c.name, c.arguments, { cwd: process.cwd(), signal: this.abort.signal });
+          this.stats.tools++;
           this.log(result.ok ? 'info' : 'warn', `tool ${c.name}: ${result.summary}`);
           this.messages.push({ role: 'tool', tool: c.name, toolKind: result.kind, detail: result.detail || result.summary, output: result.summary, ok: result.ok, expanded: false });
           this.agent.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
@@ -113,14 +142,38 @@ export class App {
       }
       this.status = `Concluído em ${((Date.now() - started) / 1000).toFixed(1)}s`;
       this.log('info', this.status);
+      // persiste a conversa no histórico local
+      try {
+        if (!this.sessionId) this.sessionId = newSessionId();
+        const firstUser = this.messages.find(m => m.role === 'user');
+        saveSession(this.sessionId, { title: (firstUser?.content || 'conversa').slice(0, 60), model: this.model, messages: this.messages, agent: this.agent });
+      } catch (e) { this.log('warn', 'histórico: ' + e.message); }
     } catch (err) {
       reply.failed = true;
+      this.stats.errors++;
       this.status = this.abort.signal.aborted ? 'Cancelado; resposta parcial mantida' : safe(err.message);
       reply.error = this.status; this.log(this.abort.signal.aborted ? 'warn' : 'error', this.status);
     } finally { this.busy = false; this.abort = null; this.changed(); }
   }
+  restoreSession(s) {
+    if (this.busy) return;
+    this.sessionId = s.id;
+    this.model = s.model || this.model;
+    this.messages = (s.messages || []).map(m => ({ ...m }));
+    this.agent = (s.agent || []).map(m => ({ ...m }));
+    this.screen = 'chat'; this.tab = 0; this.picker = false;
+    this.status = 'Histórico restaurado'; this.changed();
+  }
   reset() {
     if (this.busy) return;
+    try {
+      if (this.messages.length) {
+        if (!this.sessionId) this.sessionId = newSessionId();
+        const firstUser = this.messages.find(m => m.role === 'user');
+        saveSession(this.sessionId, { title: (firstUser?.content || 'conversa').slice(0, 60), model: this.model, messages: this.messages, agent: this.agent });
+      }
+    } catch {}
+    this.sessionId = null;
     this.screen = 'landing'; this.tab = 0; this.picker = false;
     this.messages = []; this.agent = []; this.input = []; this.cursor = 0; this.scroll = [0, 0];
     this.status = 'Pronto'; this.changed();
@@ -128,6 +181,41 @@ export class App {
   key(ch, key = {}) {
     if (this.suppressKeypress) return;
     const n = key.name;
+
+    // telas de usage/historico: Esc/Tab voltam; historico tem navegação
+    if (this.screen === 'usage') {
+      if (n === 'escape' || n === 'tab' || n === 'return' || (key.ctrl && n === 'u')) this.screen = 'chat';
+      this.changed(); return;
+    }
+    if (this.screen === 'history') {
+      if (n === 'escape' || (key.ctrl && n === 'c' && false)) { /* noop */ }
+      if (n === 'escape' || n === 'tab') { this.screen = 'chat'; }
+      else if (n === 'up') this.histChoice = Math.max(0, this.histChoice - 1);
+      else if (n === 'down') this.histChoice = Math.min(Math.max(0, this.saved.length - 1), this.histChoice + 1);
+      else if (n === 'return') {
+        const s = this.saved[this.histChoice];
+        if (s) { this.restoreSession(s); }
+      }
+      else if (ch === 'd') {
+        const s = this.saved[this.histChoice];
+        if (s) { deleteSession(s.id); this.saved = loadHistory(); this.histChoice = Math.min(this.histChoice, Math.max(0, this.saved.length - 1)); }
+      }
+      this.changed(); return;
+    }
+
+    // menu de comandos aberto: intercepta só a navegação — digitar continua
+    // inserindo e filtrando os itens
+    if (this.menu) {
+      const items = this.menuItems();
+      if (n === 'escape') { this.menu = null; this.input = []; this.cursor = 0; this.changed(); return; }
+      if (n === 'up') { this.menu.choice = Math.max(0, this.menu.choice - 1); this.changed(); return; }
+      if (n === 'down') { this.menu.choice = Math.min(items.length - 1, this.menu.choice + 1); this.changed(); return; }
+      if (n === 'return') {
+        const it = items[this.menu.choice];
+        if (it) { this.input = []; this.cursor = 0; it.run(); }
+        this.changed(); return;
+      }
+    }
     if (key.ctrl && n === 'c') return 'exit';
     // Ctrl+D só sai com a entrada vazia, para não perder texto por acidente.
     if (key.ctrl && n === 'd' && !this.input.length) return 'exit';
@@ -155,14 +243,18 @@ export class App {
     else if (n === 'right') this.cursor = Math.min(this.input.length, this.cursor + 1);
     else if (n === 'home' || (key.ctrl && n === 'a')) this.cursor = 0;
     else if (n === 'end' || (key.ctrl && n === 'e')) this.cursor = this.input.length;
-    else if (n === 'backspace' && this.cursor > 0) this.input.splice(--this.cursor, 1);
+    else if (n === 'backspace' && this.cursor > 0) { this.input.splice(--this.cursor, 1); if (this.menu && !this.input.join('').startsWith('/')) this.menu = null; }
     else if (n === 'delete') this.input.splice(this.cursor, 1);
     else if (n === 'return') {
+      if (this.menu) { const it = this.menuItems()[this.menu.choice]; if (it) { this.input = []; this.cursor = 0; it.run(); } this.changed(); return; }
       if (['/quit', '/exit'].includes(this.input.join('').trim()) && !this.busy) return 'exit';
       void this.send();
     } else if (ch && !key.ctrl && !key.meta) {
       const insert = chars(safe(ch).replace(/\n/g, ' '));
       if (this.input.join('').length + insert.join('').length <= 8000) { this.input.splice(this.cursor, 0, ...insert); this.cursor += insert.length; }
+      const t = this.input.join('');
+      if (t === '/' || (t.startsWith('/') && !this.menu)) this.openMenu();
+      if (this.menu && this.menu.mode === 'commands' && !t.startsWith('/')) this.menu = null;
     }
     this.changed();
   }
@@ -200,6 +292,76 @@ export class App {
       if (rows > 0) frame[0] = fit('Terminal pequeno: mínimo 40x12. Ctrl+C sai.', w);
       return finish();
     }
+    this.clickZones = [];
+    if (this.screen === 'usage') {
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      put(3, theme.pink('Uso da sessão'));
+      const u = this.stats;
+      const mins = Math.max(1, Math.round((Date.now() - u.started) / 60000));
+      const cards = [
+        ['Requisições', String(u.requests)],
+        ['Tokens', `${u.prompt + u.completion}`],
+        ['.. prompt', String(u.prompt)],
+        ['.. completion', String(u.completion)],
+        ['Ferramentas', String(u.tools)],
+        ['Erros', String(u.errors)],
+        ['Sessão', `${mins} min`],
+        ['Modelo', safe(this.model)],
+      ];
+      const colW = Math.min(38, Math.floor((cw - 6) / 4));
+      cards.forEach(([label, value], i) => {
+        const col = i % 4, row = Math.floor(i / 4);
+        const bx = left + col * (colW + 2);
+        this.clickZones.push({ row: 6 + row * 4, x1: -99, x2: -98 }); // inertes, só alinhamento visual
+        const top = theme.border('┌' + '─'.repeat(colW - 2) + '┐');
+        const mid = theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│');
+        const bot = theme.border('└' + '─'.repeat(colW - 2) + '┘');
+        put(6 + row * 4, theme.border('') + '');
+        put(6 + row * 4, '');
+        const ox = bx;
+        const lineAt = (dy, txt) => { const y = 6 + row * 4 + dy; if (y < rows - 6) frame[y] = ' '.repeat(ox) + fit(txt, w); };
+        lineAt(0, top);
+        lineAt(1, theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│'));
+        lineAt(2, theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│'));
+        lineAt(3, bot);
+      });
+      let yy = 6 + Math.ceil(cards.length / 4) * 4 + 1;
+      put(yy, theme.pink('Por modelo'));
+      yy += 1;
+      this.modelStats.forEach((m, name) => {
+        put(yy, '  ' + theme.lilac(fit(name, 30)) + theme.muted(`  ${m.requests} reqs · ${m.prompt + m.completion} tokens`));
+        yy += 1;
+      });
+      put(rows - 3, theme.muted('Esc/Tab voltar ao chat'));
+      const vpos2 = 0;
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      return finish();
+    }
+    if (this.screen === 'history') {
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      put(3, theme.pink('Histórico'));
+      put(4, theme.muted(`${this.saved.length} conversa(s) salvas em ~/.laizy/history.json`));
+      put(6, theme.muted('↑/↓ escolher · Enter abrir · d deletar · Esc voltar'));
+      const count = rows - 10, start = Math.max(0, Math.min(this.histChoice, Math.max(0, this.saved.length - count)));
+      this.saved.slice(start, start + count).forEach((s2, i) => {
+        const sel = start + i === this.histChoice;
+        const title = `${s2.title}`;
+        const meta = `${s2.model || ''} · ${new Date(s2.updated || s2.created || Date.now()).toLocaleString('pt-BR')} · ${(s2.messages || []).length} msg`;
+        const y = 8 + i;
+        put(y, (sel ? theme.selected : theme.muted)(fit(` ${sel ? '›' : ' '} ${safe(title)}`, cw)));
+        put(y + 1, theme.muted(fit(`   ${safe(meta)}`, cw)));
+      });
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      put(rows - 3, theme.muted('Esc voltar ao chat'));
+      if (this.saved.length) {
+        const sel = this.saved[Math.min(this.histChoice, this.saved.length - 1)];
+        const ypos = 8 + Math.min(this.histChoice, count - 1) * 2;
+        this.clickZones.push({ row: ypos, x1: -50, x2: w + 50, action: () => { if (sel) this.restoreSession(sel); } });
+      }
+      return finish();
+    }
     const landing = this.screen === 'landing' && this.tab === 0;
     const cw = Math.min(landing ? 72 : 100, w - (cols < 60 ? 2 : 6)), left = Math.floor((w - cw) / 2);
     const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
@@ -235,6 +397,24 @@ export class App {
       center(top + logo.length + 1, theme.lilac('Laizy CLI'));
       center(top + logo.length + 2, theme.muted('seu espaço para pensar'));
       const y = top + logo.length + 4;
+      let menuH = 0;
+      if (this.menu) {
+        const items = this.menuItems();
+        const title = this.menu.mode === 'models' ? 'Modelos' : 'Menu';
+        const inner = Math.max(10, cw - 4);
+        const menuLines = [theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮')];
+        items.forEach((it, i) => {
+          const sel = i === this.menu.choice;
+          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, 12) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - 18))));
+          menuLines.push(theme.border('│ ') + fit(row, inner) + theme.border(' │'));
+        });
+        menuLines.push(theme.border('╰' + '─'.repeat(inner) + '╯'));
+        menuH = menuLines.length + 1;
+        menuLines.forEach((line, i) => put(y - menuH + i, line));
+        items.forEach((it, i) => {
+          this.clickZones.push({ row: y - menuH + 1 + i, x1: -50, x2: w + 50, action: () => { it.run(); this.changed(); } });
+        });
+      }
       this.composer(cw, composerH).forEach((line, i) => put(y + i, line));
       const modelLine = 'Modelo ' + safe(this.model) + ' · F2 trocar';
       put(y + composerH, theme.muted('Modelo ') + theme.lilac(safe(this.model)) + theme.muted(' · F2 trocar'));
@@ -259,7 +439,28 @@ export class App {
       const error = !this.busy && this.messages.at(-1)?.error;
       const status = error ? wrap(errorSummary(error), cw - 2).slice(0, 2) : [];
       const composer = this.composer(cw, Math.min(8, Math.max(3, rows - 10)), true);
-      const composerY = rows - composer.length - 3 - status.length, content = [];
+      let composerY = rows - composer.length - 3 - status.length, content = [];
+      if (this.menu) {
+        const items = this.menuItems();
+        const title = this.menu.mode === 'models' ? 'Modelos' : 'Menu';
+        const inner = Math.max(10, cw - 4);
+        const top = theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮');
+        const menuLines = [top];
+        items.forEach((it, i) => {
+          const sel = i === this.menu.choice;
+          const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, 12) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - 18))));
+          menuLines.push(theme.border('│ ') + fit(row, inner) + theme.border(' │'));
+        });
+        menuLines.push(theme.border('╰' + '─'.repeat(inner) + '╯'));
+        composerY -= menuLines.length + 1;
+        menuLines.forEach((line, i) => {
+          put(composerY + i, line);
+          if (i >= 1 && i <= items.length) {
+            const it = items[i - 1];
+            this.clickZones.push({ row: composerY + i, x1: -50, x2: w + 50, action: () => { it.run(); this.changed(); } });
+          }
+        });
+      }
       put(rows - 2, '');
       const foot = cw < 60
         ? (this.busy ? 'Esc cancelar · F2 modelo · Tab Logs' : 'Enter enviar · F2 modelo · Tab Logs')
@@ -635,7 +836,7 @@ export async function run() {
   const app = new App(client, () => { if (active && !timer) timer = setTimeout(() => { timer = null; render(); }, 33); });
   // Keep the busy spinner animating even without stream deltas (e.g., while
   // the server still holds the request open).
-  const anim = setInterval(() => { if (active && app.busy) render(); }, 100);
+  const anim = setInterval(() => { if (!active) return; if (app.busy) render(); if (app.quitRequested) stop(); }, 100);
   anim.unref?.();
   function render() {
     if (!active) return;

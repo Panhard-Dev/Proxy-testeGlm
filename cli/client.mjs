@@ -40,6 +40,7 @@ export class OpenAIClient {
       if (typeof ch?.delta?.reasoning_content === 'string') events.push({ reasoning: ch.delta.reasoning_content });
       if (typeof ch?.delta?.content === 'string') events.push({ delta: ch.delta.content });
       if (Array.isArray(ch?.delta?.tool_calls)) events.push({ toolCalls: ch.delta.tool_calls });
+      if (j.usage) events.push({ usage: j.usage });
       if (ch?.finish_reason) { events.push({ finishReason: ch.finish_reason }); finished = true; }
       return events;
     }
