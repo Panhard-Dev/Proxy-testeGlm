@@ -26,6 +26,7 @@ export const background = '\x1b[48;2;12;12;16m';
 const color = rgb => text => `\x1b[38;2;${rgb}m${text}${foreground}`;
 export const theme = {
   violet: color('165;124;204'), pink: color('239;153;205'), lilac: color('225;205;241'),
+  green: color('63;207;142'), yellow: color('245;197;66'), blue: color('96;150;254'),
   red: color('219;135;159'),
   muted: color('161;135;175'), border: color('85;57;104'),
   canvas: text => `${background}${foreground}${text}\x1b[0m`,

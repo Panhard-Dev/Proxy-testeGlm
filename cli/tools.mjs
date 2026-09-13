@@ -55,6 +55,18 @@ export const BUILTIN_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'delete_file',
+      description: 'Deleta um arquivo. Use com cautela e só quando o usuário pedir.',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'Caminho do arquivo a deletar' } },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_dir',
       description: 'Lista o conteúdo de uma pasta (arquivos e subpastas).',
       parameters: {
@@ -96,7 +108,7 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
           resolve(out);
         });
       });
-      return { ok: true, text, detail: `$ ${command}`, summary: `$ ${command}` };
+      return { ok: true, kind: 'run', text, detail: `$ ${command}`, summary: `$ ${command}` };
     }
 
     if (name === 'write_file') {
@@ -106,13 +118,13 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
       const existed = fs.existsSync(file);
       fs.writeFileSync(file, content);
       const kb = (Buffer.byteLength(content) / 1024).toFixed(1);
-      return { ok: true, text: `${existed ? 'Arquivo atualizado' : 'Arquivo criado'}: ${file} (${kb} KB)`, detail: file, summary: `${existed ? 'editou' : 'criou'} ${path.basename(file)} (${kb} KB)` };
+      return { ok: true, kind: existed ? 'edit' : 'create', text: `${existed ? 'Arquivo atualizado' : 'Arquivo criado'}: ${file} (${kb} KB)`, detail: file, summary: `${existed ? 'editou' : 'criou'} ${path.basename(file)} (${kb} KB)` };
     }
 
     if (name === 'read_file') {
       const file = resolveSafe(String(args.path || ''), cwd);
       const text = clip(fs.readFileSync(file, 'utf8'));
-      return { ok: true, text, detail: file, summary: `leu ${path.basename(file)} (${text.length} chars)` };
+      return { ok: true, kind: 'read', text, detail: file, summary: `leu ${path.basename(file)} (${text.length} chars)` };
     }
 
     if (name === 'list_dir') {
@@ -120,7 +132,14 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
       const entries = fs.readdirSync(dir, { withFileTypes: true })
         .slice(0, 300)
         .map(e => e.isDirectory() ? e.name + '/' : e.name);
-      return { ok: true, text: `${dir}\n` + (entries.join('\n') || '(vazio)'), detail: dir, summary: `listou ${path.basename(dir)} (${entries.length} itens)` };
+      return { ok: true, kind: 'list', text: `${dir}\n` + (entries.join('\n') || '(vazio)'), detail: dir, summary: `listou ${path.basename(dir)} (${entries.length} itens)` };
+    }
+
+    if (name === 'delete_file') {
+      const file = resolveSafe(String(args.path || ''), cwd);
+      const existed = fs.existsSync(file);
+      fs.rmSync(file, { force: true });
+      return { ok: true, kind: 'delete', text: existed ? `Arquivo deletado: ${file}` : `Arquivo não existia: ${file}`, detail: file, summary: `deletou ${path.basename(file)}` };
     }
 
     return { ok: false, text: `Ferramenta desconhecida: ${name}`, summary: `desconhecida: ${name}` };

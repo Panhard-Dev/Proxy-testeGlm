@@ -235,7 +235,7 @@ try {
   await first;
   assert.equal(request.model, 'x-preview-l');
   assert.equal(request.stream, true);
-  assert.deepEqual(request.tools?.map(t => t.function.name), ['run_command', 'write_file', 'read_file', 'list_dir']);
+  assert.deepEqual(request.tools?.map(t => t.function.name), ['run_command', 'write_file', 'read_file', 'delete_file', 'list_dir']);
   assert.equal(request.messages.at(-1).content, 'Hello 世界');
   assert.equal(app.messages.at(-1).reasoning, 'checking');
   assert.match(screen(), /Hello 世界/);

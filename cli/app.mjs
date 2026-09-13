@@ -8,6 +8,15 @@ import { bootstrap } from './bootstrap.mjs';
 import { BUILTIN_TOOLS, AGENT_SYSTEM, executeTool } from './tools.mjs';
 import { safe, chars, width, fit, wrap, markdown, errorSummary, theme, wordmark, reflection, background, block, errorBlock, spinnerFrame } from './ui.mjs';
 
+const TOOL_COLORS = {
+  run: theme.green,
+  create: theme.blue,
+  edit: theme.purple ?? theme.violet,
+  delete: theme.red,
+  read: theme.lilac,
+  list: theme.lilac,
+};
+
 export class App {
   constructor(client, changed = () => {}) {
     this.client = client; this.changed = changed;
@@ -94,7 +103,7 @@ export class App {
         for (const c of calls) {
           const result = await executeTool(c.name, c.arguments, { cwd: process.cwd(), signal: this.abort.signal });
           this.log(result.ok ? 'info' : 'warn', `tool ${c.name}: ${result.summary}`);
-          this.messages.push({ role: 'tool', tool: c.name, detail: result.detail || result.summary, output: result.summary, ok: result.ok, expanded: false });
+          this.messages.push({ role: 'tool', tool: c.name, toolKind: result.kind, detail: result.detail || result.summary, output: result.summary, ok: result.ok, expanded: false });
           this.agent.push({ role: 'tool', tool_call_id: c.id, content: result.text.slice(0, 8000) });
           this.changed();
         }
@@ -267,7 +276,8 @@ export class App {
         if (content.length) L('');
         if (m.role === 'tool') {
           const arrow = m.expanded ? '[-]' : '[+]';
-          L('   ' + theme.lilac(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), { msg: m, kind: 'tool' });
+          const tc = TOOL_COLORS[m.toolKind] || theme.lilac;
+          L('   ' + tc(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), { msg: m, kind: 'tool' });
           if (m.expanded) {
             if (m.detail) wrap(m.detail, cw - 6).forEach(l => L('   ' + l));
             if (m.output && m.output !== m.detail) L('   ' + theme.border('└') + theme.muted(' ' + m.output));
@@ -277,12 +287,11 @@ export class App {
         const badge = m.role === 'user' ? theme.pink('VOCÊ') : theme.lilac(safe(m.model));
         L(badge);
         if (m.reasoning) {
-          const arrow = m.thoughtOpen ? '[-]' : '[+]';
-          L('   ' + theme.muted(arrow + ' Pensamento') + theme.border(`  · ${String(m.reasoning.length)} caracteres`), { msg: m, kind: 'thought' });
-          if (m.thoughtOpen) {
-            wrap(m.reasoning, cw - 10).forEach(l => L('   ' + theme.border('│ ') + theme.muted(l)));
-            L('   ' + theme.border('╰────'));
-          }
+          const live = this.busy && m === this.messages.at(-1);
+          const open = m.thoughtOpen || live;
+          const arrow = open ? '[-]' : '[+]';
+          L('   ' + theme.yellow(arrow + ' Pensamento') + theme.border(`  · ${String(m.reasoning.length)} caracteres`), { msg: m, kind: 'thought' });
+          if (open) wrap(m.reasoning, cw - 10).forEach(l => L('   ' + theme.yellow(l)));
         }
         markdown(m.content || (this.busy && m === this.messages.at(-1) ? `${spinnerFrame()} Aguardando resposta…` : ''), cw - 5).forEach(l => L('     ' + l));
         if (m.error && m !== this.messages.at(-1)) wrap(errorSummary(m.error), cw - 5).forEach(l => L(theme.red('     ' + l)));
@@ -293,7 +302,7 @@ export class App {
       content.slice(startIdx, startIdx + cap).forEach((line, i) => {
         put(3 + i, line);
         const hit = hitMeta[startIdx + i];
-        if (hit) this.toolHits.push({ row: 3 + i, msg: hit });
+        if (hit) this.toolHits.push({ row: 3 + i, msg: hit.msg, kind: hit.kind });
       });
       composer.forEach((line, i) => put(composerY + i, line));
       const state = this.busy ? `${spinnerFrame()} Respondendo…` : error ? 'Interrompido' : safe(this.status);
