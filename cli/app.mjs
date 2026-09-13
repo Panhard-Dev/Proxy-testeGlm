@@ -182,99 +182,18 @@ export class App {
     if (this.suppressKeypress) return;
     const n = key.name;
 
-    // telas de usage/historico: Esc/Tab voltam; historico tem navegação
+    // telas de uso/histórico: navegação por teclado
     if (this.screen === 'usage') {
-      if (n === 'escape' || n === 'tab' || n === 'return' || (key.ctrl && n === 'u')) this.screen = 'chat';
-      this.changed(); return;
+      if (n === 'escape' || n === 'tab' || n === 'return') { this.screen = 'chat'; this.changed(); return; }
     }
     if (this.screen === 'history') {
-      put(0, pair(theme.lilac('Laizy CLI'), nav));
-      put(1, theme.border('─'.repeat(cw)));
-      put(3, theme.pink('Histórico'));
-      put(4, theme.muted(`${this.saved.length} conversa(s) salvas em ~/.laizy/history.json`));
-      put(6, theme.muted('↑/↓ escolher · Enter abrir · d deletar · Esc voltar'));
-      const count = rows - 10, start = Math.max(0, Math.min(this.histChoice, Math.max(0, this.saved.length - count)));
-      this.saved.slice(start, start + count).forEach((s2, i) => {
-        const sel = start + i === this.histChoice;
-        const title = `${s2.title}`;
-        const meta = `${s2.model || ''} · ${new Date(s2.updated || s2.created || Date.now()).toLocaleString('pt-BR')} · ${(s2.messages || []).length} msg`;
-        const y = 8 + i;
-        put(y, (sel ? theme.selected : theme.muted)(fit(` ${sel ? '›' : ' '} ${safe(title)}`, cw)));
-        put(y + 1, theme.muted(fit(`   ${safe(meta)}`, cw)));
-      });
-      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
-      put(rows - 3, theme.muted('Esc voltar ao chat'));
-      if (this.saved.length) {
-        const sel = this.saved[Math.min(this.histChoice, this.saved.length - 1)];
-        const ypos = 8 + Math.min(this.histChoice, count - 1) * 2;
-        this.clickZones.push({ row: ypos, x1: -50, x2: w + 50, action: () => { if (sel) this.restoreSession(sel); } });
-      }
-      return finish();
-    }
-    const landing = this.screen === 'landing' && this.tab === 0;
-    const cw = Math.min(landing ? 72 : 100, w - (cols < 60 ? 2 : 6)), left = Math.floor((w - cw) / 2);
-    const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
-    const pair = (a, b) => fit(a, Math.max(0, cw - width(b) - 2)) + '  ' + b;
-    const nav = (this.tab === 0 ? theme.lilac : theme.muted)('Chat') + theme.border(' · ') +
-      (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
-    this.clickZones = [];
-    if (this.screen === 'usage') {
-      put(0, pair(theme.lilac('Laizy CLI'), nav));
-      put(1, theme.border('─'.repeat(cw)));
-      put(3, theme.pink('Uso da sessão'));
-      const u = this.stats;
-      const mins = Math.max(1, Math.round((Date.now() - u.started) / 60000));
-      const cards = [
-        ['Requisições', String(u.requests)],
-        ['Tokens', `${u.prompt + u.completion}`],
-        ['.. prompt', String(u.prompt)],
-        ['.. completion', String(u.completion)],
-        ['Ferramentas', String(u.tools)],
-        ['Erros', String(u.errors)],
-        ['Sessão', `${mins} min`],
-        ['Modelo', safe(this.model)],
-      ];
-      const colW = Math.min(38, Math.floor((cw - 6) / 4));
-      cards.forEach(([label, value], i) => {
-        const col = i % 4, row = Math.floor(i / 4);
-        const bx = left + col * (colW + 2);
-        this.clickZones.push({ row: 6 + row * 4, x1: -99, x2: -98 }); // inertes, só alinhamento visual
-        const top = theme.border('┌' + '─'.repeat(colW - 2) + '┐');
-        const mid = theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│');
-        const bot = theme.border('└' + '─'.repeat(colW - 2) + '┘');
-        put(6 + row * 4, theme.border('') + '');
-        put(6 + row * 4, '');
-        const ox = bx;
-        const lineAt = (dy, txt) => { const y = 6 + row * 4 + dy; if (y < rows - 6) frame[y] = ' '.repeat(ox) + fit(txt, w); };
-        lineAt(0, top);
-        lineAt(1, theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│'));
-        lineAt(2, theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│'));
-        lineAt(3, bot);
-      });
-      let yy = 6 + Math.ceil(cards.length / 4) * 4 + 1;
-      put(yy, theme.pink('Por modelo'));
-      yy += 1;
-      this.modelStats.forEach((m, name) => {
-        put(yy, '  ' + theme.lilac(fit(name, 30)) + theme.muted(`  ${m.requests} reqs · ${m.prompt + m.completion} tokens`));
-        yy += 1;
-      });
-      put(rows - 3, theme.muted('Esc/Tab voltar ao chat'));
-      const vpos2 = 0;
-      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
-      return finish();
-    }
-    if (this.screen === 'history') {
-      if (n === 'escape' || (key.ctrl && n === 'c' && false)) { /* noop */ }
-      if (n === 'escape' || n === 'tab') { this.screen = 'chat'; }
+      if (n === 'escape' || n === 'tab') { this.screen = 'chat'; this.changed(); return; }
       else if (n === 'up') this.histChoice = Math.max(0, this.histChoice - 1);
       else if (n === 'down') this.histChoice = Math.min(Math.max(0, this.saved.length - 1), this.histChoice + 1);
-      else if (n === 'return') {
-        const s = this.saved[this.histChoice];
-        if (s) { this.restoreSession(s); }
-      }
+      else if (n === 'return') { const s2 = this.saved[this.histChoice]; if (s2) this.restoreSession(s2); }
       else if (ch === 'd') {
-        const s = this.saved[this.histChoice];
-        if (s) { deleteSession(s.id); this.saved = loadHistory(); this.histChoice = Math.min(this.histChoice, Math.max(0, this.saved.length - 1)); }
+        const s2 = this.saved[this.histChoice];
+        if (s2) { deleteSession(s2.id); this.saved = loadHistory(); this.histChoice = Math.min(this.histChoice, Math.max(0, this.saved.length - 1)); }
       }
       this.changed(); return;
     }
@@ -369,6 +288,84 @@ export class App {
       return finish();
     }
 
+
+    const landing = this.screen === 'landing' && this.tab === 0;
+    const cw = Math.min(landing ? 72 : 100, w - (cols < 60 ? 2 : 6)), left = Math.floor((w - cw) / 2);
+    const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
+    const pair = (a, b) => fit(a, Math.max(0, cw - width(b) - 2)) + '  ' + b;
+    const nav = (this.tab === 0 ? theme.lilac : theme.muted)('Chat') + theme.border(' · ') +
+      (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
+    this.clickZones = [];
+    this.clickZones = [];
+    if (this.screen === 'usage') {
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      put(3, theme.pink('Uso da sessão'));
+      const u = this.stats;
+      const mins = Math.max(1, Math.round((Date.now() - u.started) / 60000));
+      const cards = [
+        ['Requisições', String(u.requests)],
+        ['Tokens', `${u.prompt + u.completion}`],
+        ['.. prompt', String(u.prompt)],
+        ['.. completion', String(u.completion)],
+        ['Ferramentas', String(u.tools)],
+        ['Erros', String(u.errors)],
+        ['Sessão', `${mins} min`],
+        ['Modelo', safe(this.model)],
+      ];
+      const colW = Math.min(38, Math.floor((cw - 6) / 4));
+      cards.forEach(([label, value], i) => {
+        const col = i % 4, row = Math.floor(i / 4);
+        const bx = left + col * (colW + 2);
+        this.clickZones.push({ row: 6 + row * 4, x1: -99, x2: -98 }); // inertes, só alinhamento visual
+        const top = theme.border('┌' + '─'.repeat(colW - 2) + '┐');
+        const mid = theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│');
+        const bot = theme.border('└' + '─'.repeat(colW - 2) + '┘');
+        put(6 + row * 4, theme.border('') + '');
+        put(6 + row * 4, '');
+        const ox = bx;
+        const lineAt = (dy, txt) => { const y = 6 + row * 4 + dy; if (y < rows - 6) frame[y] = ' '.repeat(ox) + fit(txt, w); };
+        lineAt(0, top);
+        lineAt(1, theme.border('│') + ' ' + theme.muted(fit(label, colW - 4)) + ' ' + theme.border('│'));
+        lineAt(2, theme.border('│') + ' ' + theme.lilac(fit(value, colW - 4)) + ' ' + theme.border('│'));
+        lineAt(3, bot);
+      });
+      let yy = 6 + Math.ceil(cards.length / 4) * 4 + 1;
+      put(yy, theme.pink('Por modelo'));
+      yy += 1;
+      this.modelStats.forEach((m, name) => {
+        put(yy, '  ' + theme.lilac(fit(name, 30)) + theme.muted(`  ${m.requests} reqs · ${m.prompt + m.completion} tokens`));
+        yy += 1;
+      });
+      put(rows - 3, theme.muted('Esc/Tab voltar ao chat'));
+      const vpos2 = 0;
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      return finish();
+    }
+    if (this.screen === 'history') {
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      put(3, theme.pink('Histórico'));
+      put(4, theme.muted(`${this.saved.length} conversa(s) salvas em ~/.laizy/history.json`));
+      put(6, theme.muted('↑/↓ escolher · Enter abrir · d deletar · Esc voltar'));
+      const count = rows - 10, start = Math.max(0, Math.min(this.histChoice, Math.max(0, this.saved.length - count)));
+      this.saved.slice(start, start + count).forEach((s2, i) => {
+        const sel = start + i === this.histChoice;
+        const title = `${s2.title}`;
+        const meta = `${s2.model || ''} · ${new Date(s2.updated || s2.created || Date.now()).toLocaleString('pt-BR')} · ${(s2.messages || []).length} msg`;
+        const y = 8 + i;
+        put(y, (sel ? theme.selected : theme.muted)(fit(` ${sel ? '›' : ' '} ${safe(title)}`, cw)));
+        put(y + 1, theme.muted(fit(`   ${safe(meta)}`, cw)));
+      });
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      put(rows - 3, theme.muted('Esc voltar ao chat'));
+      if (this.saved.length) {
+        const sel = this.saved[Math.min(this.histChoice, count - 1)];
+        const ypos = 8 + Math.min(this.histChoice, count - 1) * 2;
+        this.clickZones.push({ row: ypos, x1: -50, x2: w + 50, action: () => { if (sel) this.restoreSession(sel); } });
+      }
+      return finish();
+    }
 
     if (!landing || this.picker) {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
