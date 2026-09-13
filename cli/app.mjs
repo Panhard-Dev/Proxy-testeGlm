@@ -14,7 +14,7 @@ export class App {
     this.screen = 'landing'; this.tab = 0; this.models = ['glm-4.7', 'x-preview-l']; this.model = client.model;
     this.modelSource = 'fallback'; this.picker = false; this.choice = 0;
     this.messages = []; this.agent = []; this.logs = []; this.filter = 'all'; this.scroll = [0, 0];
-    this.toolHits = []; this.suppressKeypress = false; this.mouseBuf = '';
+    this.toolHits = []; this.clickZones = []; this.suppressKeypress = false; this.mouseBuf = '';
     this.input = []; this.cursor = 0; this.busy = false; this.status = 'Pronto';
     this.lifetime = new AbortController();
   }
@@ -184,6 +184,7 @@ export class App {
   }
   render(cols, rows) {
     const w = Math.max(0, cols - 1);
+    this.clickZones = [];
     const frame = Array.from({ length: Math.max(0, rows) }, () => '');
     const finish = () => frame.map(line => theme.canvas(fit(line, w)));
     if (cols < 40 || rows < 12) {
@@ -198,6 +199,10 @@ export class App {
       (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
     if (!landing || this.picker) {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
+      const navPlain = 'Chat · Logs';
+      const navX = left + cw - width(navPlain);
+      this.clickZones.push({ row: 0, x1: navX, x2: navX + 4, action: () => { this.tab = 0; this.picker = false; } });
+      this.clickZones.push({ row: 0, x1: navX + 7, x2: navX + 11, action: () => { this.tab = 1; this.picker = false; } });
       put(1, theme.border('─'.repeat(cw)));
     }
     put(rows - 2, theme.muted(safe(this.status)));
@@ -223,7 +228,10 @@ export class App {
       center(top + logo.length + 2, theme.muted('seu espaço para pensar'));
       const y = top + logo.length + 4;
       this.composer(cw, composerH).forEach((line, i) => put(y + i, line));
+      const modelLine = 'Modelo ' + safe(this.model) + ' · F2 trocar';
       put(y + composerH, theme.muted('Modelo ') + theme.lilac(safe(this.model)) + theme.muted(' · F2 trocar'));
+      const mx = left + Math.floor((cw - width(modelLine)) / 2);
+      this.clickZones.push({ row: y + composerH, x1: mx, x2: mx + width(modelLine), action: () => { this.picker = true; this.choice = Math.max(0, this.models.indexOf(this.model)); void this.refreshModels(); } });
       put(y + composerH + 1, theme.muted('Enter enviar · Ctrl+U limpar'));
     } else if (this.tab === 1) {
       put(2, theme.pink('Registro / ') + theme.lilac(`${this.logs.length} eventos`));
@@ -236,15 +244,22 @@ export class App {
       this.window(content, rows - 10, 1).forEach((line, i) => put(6 + i, line));
       put(rows - 4, theme.border('─'.repeat(cw)));
       put(rows - 3, theme.muted('T/W/E filtrar · C limpar · ↑/↓ rolar · Tab voltar'));
+      const vpos = 'T/W/E filtrar · C limpar · ↑/↓ rolar · '.length;
+      this.clickZones.push({ row: rows - 3, x1: left + vpos, x2: left + vpos + width('Tab voltar'), action: () => { this.tab = 0; } });
     } else {
       const error = !this.busy && this.messages.at(-1)?.error;
       const status = error ? wrap(errorSummary(error), cw - 2).slice(0, 2) : [];
       const composer = this.composer(cw, Math.min(8, Math.max(3, rows - 10)), true);
       const composerY = rows - composer.length - 3 - status.length, content = [];
       put(rows - 2, '');
-      put(rows - 1, theme.muted(cw < 60
+      const foot = cw < 60
         ? (this.busy ? 'Esc cancelar · F2 modelo · Tab Logs' : 'Enter enviar · F2 modelo · Tab Logs')
-        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs`));
+        : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs`;
+      put(rows - 1, theme.muted(foot));
+      const f2pos = foot.indexOf('F2 modelo');
+      if (f2pos >= 0) this.clickZones.push({ row: rows - 1, x1: left + f2pos, x2: left + f2pos + width('F2 modelo'), action: () => { this.picker = true; this.choice = Math.max(0, this.models.indexOf(this.model)); void this.refreshModels(); } });
+      const tabpos = foot.indexOf('Tab Logs');
+      if (tabpos >= 0) this.clickZones.push({ row: rows - 1, x1: left + tabpos, x2: left + tabpos + width('Tab Logs'), action: () => { this.tab = 1; this.picker = false; } });
       const hitMeta = [];
       const L = (line, hit = null) => { content.push(line); hitMeta.push(hit); };
       for (const m of this.messages) {
@@ -281,6 +296,14 @@ export class App {
     }
     return finish();
   }
+  click(row, col) {
+    for (const h of this.toolHits) {
+      if (h.row === row) { h.msg.expanded = !h.msg.expanded; this.changed(); return; }
+    }
+    for (const z of this.clickZones) {
+      if (z.row === row && col >= z.x1 && col <= z.x2) { z.action(); this.changed(); return; }
+    }
+  }
   // Parseia eventos de mouse SGR (\x1b[<b;x;yM) vindos do stdin raw e alterna
   // a expansão dos blocos de ferramenta clicados. A sequência pode chegar
   // partida em vários chunks: tudo vai para um buffer, e enquanto houver
@@ -297,21 +320,19 @@ export class App {
       if (sgr && (!x10 || sgr.index <= x10.index)) {
         mouse = true;
         this.mouseBuf = this.mouseBuf.slice(sgr.index + sgr[0].length);
-        if (sgr[1] === '0') row = parseInt(sgr[3], 10) - 1;
+        if (sgr[1] === '0' && sgr[4] === 'M') row = parseInt(sgr[3], 10) - 1;
       } else {
-        // X10 legacy: 3 bytes binários (botão, x+32, y+32)
+        // X10 legacy: 3 bytes binários (botão, x+32, y+32). b=0 é press do
+        // esquerdo; b=3 é o RELEASE — que não pode alternar de volta!
         mouse = true;
         const b = x10[1].charCodeAt(0) - 32;
-        row = x10[1].charCodeAt(2) - 32 - 1;
+        this._lastX10Col = x10[1].charCodeAt(1) - 32 - 1;
         this.mouseBuf = this.mouseBuf.slice(x10.index + x10[0].length);
-        if (b !== 0 && b !== 32) row = null; // só clique esquerdo alterna
+        row = b === 0 ? x10[1].charCodeAt(2) - 32 - 1 : null;
       }
-      if (row != null) {
-        for (const h of this.toolHits) {
-          if (h.row === row) { h.msg.expanded = !h.msg.expanded; this.changed(); break; }
-        }
-      }
+      if (row != null) this.click(row, this._lastX10Col ?? 0);
     }
+    this._lastX10Col = null;
     // começo de sequência ainda incompleto → mantém suprimindo
     const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf) || /\x1b\[M?$/.test(this.mouseBuf);
     if (mouse || partial) {
