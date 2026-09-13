@@ -292,6 +292,36 @@ export class App {
       if (rows > 0) frame[0] = fit('Terminal pequeno: mínimo 40x12. Ctrl+C sai.', w);
       return finish();
     }
+    if (this.screen === 'history') {
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      put(3, theme.pink('Histórico'));
+      put(4, theme.muted(`${this.saved.length} conversa(s) salvas em ~/.laizy/history.json`));
+      put(6, theme.muted('↑/↓ escolher · Enter abrir · d deletar · Esc voltar'));
+      const count = rows - 10, start = Math.max(0, Math.min(this.histChoice, Math.max(0, this.saved.length - count)));
+      this.saved.slice(start, start + count).forEach((s2, i) => {
+        const sel = start + i === this.histChoice;
+        const title = `${s2.title}`;
+        const meta = `${s2.model || ''} · ${new Date(s2.updated || s2.created || Date.now()).toLocaleString('pt-BR')} · ${(s2.messages || []).length} msg`;
+        const y = 8 + i;
+        put(y, (sel ? theme.selected : theme.muted)(fit(` ${sel ? '›' : ' '} ${safe(title)}`, cw)));
+        put(y + 1, theme.muted(fit(`   ${safe(meta)}`, cw)));
+      });
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      put(rows - 3, theme.muted('Esc voltar ao chat'));
+      if (this.saved.length) {
+        const sel = this.saved[Math.min(this.histChoice, this.saved.length - 1)];
+        const ypos = 8 + Math.min(this.histChoice, count - 1) * 2;
+        this.clickZones.push({ row: ypos, x1: -50, x2: w + 50, action: () => { if (sel) this.restoreSession(sel); } });
+      }
+      return finish();
+    }
+    const landing = this.screen === 'landing' && this.tab === 0;
+    const cw = Math.min(landing ? 72 : 100, w - (cols < 60 ? 2 : 6)), left = Math.floor((w - cw) / 2);
+    const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
+    const pair = (a, b) => fit(a, Math.max(0, cw - width(b) - 2)) + '  ' + b;
+    const nav = (this.tab === 0 ? theme.lilac : theme.muted)('Chat') + theme.border(' · ') +
+      (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
     this.clickZones = [];
     if (this.screen === 'usage') {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
@@ -338,36 +368,7 @@ export class App {
       this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
       return finish();
     }
-    if (this.screen === 'history') {
-      put(0, pair(theme.lilac('Laizy CLI'), nav));
-      put(1, theme.border('─'.repeat(cw)));
-      put(3, theme.pink('Histórico'));
-      put(4, theme.muted(`${this.saved.length} conversa(s) salvas em ~/.laizy/history.json`));
-      put(6, theme.muted('↑/↓ escolher · Enter abrir · d deletar · Esc voltar'));
-      const count = rows - 10, start = Math.max(0, Math.min(this.histChoice, Math.max(0, this.saved.length - count)));
-      this.saved.slice(start, start + count).forEach((s2, i) => {
-        const sel = start + i === this.histChoice;
-        const title = `${s2.title}`;
-        const meta = `${s2.model || ''} · ${new Date(s2.updated || s2.created || Date.now()).toLocaleString('pt-BR')} · ${(s2.messages || []).length} msg`;
-        const y = 8 + i;
-        put(y, (sel ? theme.selected : theme.muted)(fit(` ${sel ? '›' : ' '} ${safe(title)}`, cw)));
-        put(y + 1, theme.muted(fit(`   ${safe(meta)}`, cw)));
-      });
-      this.clickZones.push({ row: rows - 3, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
-      put(rows - 3, theme.muted('Esc voltar ao chat'));
-      if (this.saved.length) {
-        const sel = this.saved[Math.min(this.histChoice, this.saved.length - 1)];
-        const ypos = 8 + Math.min(this.histChoice, count - 1) * 2;
-        this.clickZones.push({ row: ypos, x1: -50, x2: w + 50, action: () => { if (sel) this.restoreSession(sel); } });
-      }
-      return finish();
-    }
-    const landing = this.screen === 'landing' && this.tab === 0;
-    const cw = Math.min(landing ? 72 : 100, w - (cols < 60 ? 2 : 6)), left = Math.floor((w - cw) / 2);
-    const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
-    const pair = (a, b) => fit(a, Math.max(0, cw - width(b) - 2)) + '  ' + b;
-    const nav = (this.tab === 0 ? theme.lilac : theme.muted)('Chat') + theme.border(' · ') +
-      (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
+
     if (!landing || this.picker) {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
       const mid = left + Math.floor(cw / 2);
