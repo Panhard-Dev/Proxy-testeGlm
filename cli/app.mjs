@@ -439,27 +439,22 @@ export class App {
       const status = error ? wrap(errorSummary(error), cw - 2).slice(0, 2) : [];
       const composer = this.composer(cw, Math.min(8, Math.max(3, rows - 10)), true);
       let composerY = rows - composer.length - 3 - status.length, content = [];
+      // constroi as linhas do menu; o desenho acontece por cima do conteudo,
+      // logo acima do composer (menuTop), sem sobrepor nada
+      let menuLines = [], menuItems = [];
       if (this.menu) {
-        const items = this.menuItems();
+        menuItems = this.menuItems();
         const title = this.menu.mode === 'models' ? 'Modelos' : 'Menu';
         const inner = Math.max(10, cw - 4);
-        const top = theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮');
-        const menuLines = [top];
-        items.forEach((it, i) => {
+        menuLines.push(theme.border('╭─ ') + theme.lilac(title) + theme.border('─'.repeat(Math.max(0, inner - width(title) - 3)) + '╮'));
+        menuItems.forEach((it, i) => {
           const sel = i === this.menu.choice;
           const row = (sel ? theme.selected : s2 => s2)(' ' + (sel ? '› ' : '  ') + fit(it.cmd, 12) + '  ' + theme.muted(fit(it.desc, Math.max(8, inner - 18))));
           menuLines.push(theme.border('│ ') + fit(row, inner) + theme.border(' │'));
         });
         menuLines.push(theme.border('╰' + '─'.repeat(inner) + '╯'));
-        composerY -= menuLines.length + 1;
-        menuLines.forEach((line, i) => {
-          put(composerY + i, line);
-          if (i >= 1 && i <= items.length) {
-            const it = items[i - 1];
-            this.clickZones.push({ row: composerY + i, x1: -50, x2: w + 50, action: () => { it.run(); this.changed(); } });
-          }
-        });
       }
+      const menuTop = composerY - menuLines.length - 1;
       put(rows - 2, '');
       const foot = cw < 60
         ? (this.busy ? 'Esc cancelar · F2 modelo · Tab Logs' : 'Enter enviar · F2 modelo · Tab Logs')
@@ -496,7 +491,7 @@ export class App {
         markdown(m.content || (this.busy && m === this.messages.at(-1) ? `${spinnerFrame()} Aguardando resposta…` : ''), cw - 5).forEach(l => L('     ' + l));
         if (m.error && m !== this.messages.at(-1)) wrap(errorSummary(m.error), cw - 5).forEach(l => L(theme.red('     ' + l)));
       }
-      const cap = Math.max(1, composerY - 4);
+      const cap = this.menu ? menuTop - 8 : composerY - 4;
       const startIdx = Math.max(0, content.length - cap - this.scroll[0]);
       this.toolHits = [];
       content.slice(startIdx, startIdx + cap).forEach((line, i) => {
@@ -504,6 +499,13 @@ export class App {
         const hit = hitMeta[startIdx + i];
         if (hit) this.toolHits.push({ row: 3 + i, msg: hit.msg, kind: hit.kind });
       });
+      // menu desenhado por cima, logo acima do composer
+      if (this.menu) {
+        menuLines.forEach((line, i) => put(menuTop + i, line));
+        menuItems.forEach((it, i) => {
+          this.clickZones.push({ row: menuTop + 1 + i, x1: -50, x2: w + 50, action: () => { it.run(); this.changed(); } });
+        });
+      }
       composer.forEach((line, i) => put(composerY + i, line));
       const state = this.busy ? `${spinnerFrame()} Respondendo…` : error ? 'Interrompido' : safe(this.status);
       const meta = ` · ${state}`;
