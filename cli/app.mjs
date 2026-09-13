@@ -199,10 +199,9 @@ export class App {
       (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
     if (!landing || this.picker) {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
-      const navPlain = 'Chat · Logs';
-      const navX = left + cw - width(navPlain);
-      this.clickZones.push({ row: 0, x1: navX, x2: navX + 4, action: () => { this.tab = 0; this.picker = false; } });
-      this.clickZones.push({ row: 0, x1: navX + 7, x2: navX + 11, action: () => { this.tab = 1; this.picker = false; } });
+      const mid = left + Math.floor(cw / 2);
+      this.clickZones.push({ row: 0, x1: -50, x2: mid, action: () => { this.tab = 0; this.picker = false; } });
+      this.clickZones.push({ row: 0, x1: mid, x2: w + 50, action: () => { this.tab = 1; this.picker = false; } });
       put(1, theme.border('─'.repeat(cw)));
     }
     put(rows - 2, theme.muted(safe(this.status)));
@@ -245,7 +244,8 @@ export class App {
       put(rows - 4, theme.border('─'.repeat(cw)));
       put(rows - 3, theme.muted('T/W/E filtrar · C limpar · ↑/↓ rolar · Tab voltar'));
       const vpos = 'T/W/E filtrar · C limpar · ↑/↓ rolar · '.length;
-      this.clickZones.push({ row: rows - 3, x1: left + vpos, x2: left + vpos + width('Tab voltar'), action: () => { this.tab = 0; } });
+      this.clickZones.push({ row: rows - 3, x1: left + vpos, x2: w + 50, action: () => { this.tab = 0; } });
+      this.clickZones.push({ row: rows - 3, x1: -50, x2: left + Math.max(0, vpos - 2), action: () => { this.tab = 1; } });
     } else {
       const error = !this.busy && this.messages.at(-1)?.error;
       const status = error ? wrap(errorSummary(error), cw - 2).slice(0, 2) : [];
@@ -257,15 +257,16 @@ export class App {
         : `${this.busy ? 'Esc cancelar' : 'Enter enviar'} · clique nos blocos · F2 modelo · Tab Logs`;
       put(rows - 1, theme.muted(foot));
       const f2pos = foot.indexOf('F2 modelo');
-      if (f2pos >= 0) this.clickZones.push({ row: rows - 1, x1: left + f2pos, x2: left + f2pos + width('F2 modelo'), action: () => { this.picker = true; this.choice = Math.max(0, this.models.indexOf(this.model)); void this.refreshModels(); } });
+      if (f2pos >= 0) this.clickZones.push({ row: rows - 1, x1: left + f2pos, x2: left + f2pos + 30, action: () => { this.picker = true; this.choice = Math.max(0, this.models.indexOf(this.model)); void this.refreshModels(); } });
       const tabpos = foot.indexOf('Tab Logs');
-      if (tabpos >= 0) this.clickZones.push({ row: rows - 1, x1: left + tabpos, x2: left + tabpos + width('Tab Logs'), action: () => { this.tab = 1; this.picker = false; } });
+      if (tabpos >= 0) this.clickZones.push({ row: rows - 1, x1: left + tabpos, x2: w + 50, action: () => { this.tab = 1; this.picker = false; } });
+      this.clickZones.push({ row: rows - 1, x1: -50, x2: left + Math.max(0, f2pos - 2), action: () => { this.tab = 0; this.picker = false; } });
       const hitMeta = [];
       const L = (line, hit = null) => { content.push(line); hitMeta.push(hit); };
       for (const m of this.messages) {
         if (content.length) L('');
         if (m.role === 'tool') {
-          const arrow = m.expanded ? '▾' : '▸';
+          const arrow = m.expanded ? '[-]' : '[+]';
           L('   ' + theme.lilac(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), m);
           if (m.expanded) {
             if (m.detail) wrap(m.detail, cw - 6).forEach(l => L('   ' + l));
@@ -316,11 +317,12 @@ export class App {
       const sgr = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(this.mouseBuf);
       const x10 = /\x1b\[M([\s\S]{3})/.exec(this.mouseBuf);
       if (!sgr && !x10) break;
-      let row;
+      let row = null, col = null, wheel = null;
       if (sgr && (!x10 || sgr.index <= x10.index)) {
         mouse = true;
         this.mouseBuf = this.mouseBuf.slice(sgr.index + sgr[0].length);
-        if (sgr[1] === '0' && sgr[4] === 'M') row = parseInt(sgr[3], 10) - 1;
+        if (sgr[1] === '64' || sgr[1] === '65') { wheel = sgr[1] === '64' ? 4 : -4; }
+        else if (sgr[1] === '0' && sgr[4] === 'M') { row = parseInt(sgr[3], 10) - 1; col = parseInt(sgr[2], 10) - 1; }
       } else {
         // X10 legacy: 3 bytes binários (botão, x+32, y+32). b=0 é press do
         // esquerdo; b=3 é o RELEASE — que não pode alternar de volta!
@@ -328,11 +330,12 @@ export class App {
         const b = x10[1].charCodeAt(0) - 32;
         this._lastX10Col = x10[1].charCodeAt(1) - 32 - 1;
         this.mouseBuf = this.mouseBuf.slice(x10.index + x10[0].length);
-        row = b === 0 ? x10[1].charCodeAt(2) - 32 - 1 : null;
+        if (b === 64 || b === 65) wheel = b === 64 ? 4 : -4;
+        else if (b === 0) { row = x10[1].charCodeAt(2) - 32 - 1; col = x10[1].charCodeAt(1) - 32 - 1; }
       }
-      if (row != null) this.click(row, this._lastX10Col ?? 0);
+      if (wheel != null) { this.scroll[this.tab] += wheel; this.changed(); continue; }
+      if (row != null) this.click(row, col ?? 0);
     }
-    this._lastX10Col = null;
     // começo de sequência ainda incompleto → mantém suprimindo
     const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf) || /\x1b\[M?$/.test(this.mouseBuf);
     if (mouse || partial) {
