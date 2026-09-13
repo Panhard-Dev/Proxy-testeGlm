@@ -256,7 +256,7 @@ async function parseDeepSeekStreamToOpenAI(
           isThinkingChunk = true;
         }
 
-        if (!foundStr || vStr === '' || vStr === 'FINISHED') continue;
+        if (!foundStr || vStr === '' || vStr === 'FINISHED' || vStr === 'INCOMPLETE' || vStr === 'STATUS_INCOMPLETE') continue;
 
         if (isThinkingChunk) {
           reasoningContent += vStr;

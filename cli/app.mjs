@@ -13,8 +13,8 @@ const TOOL_COLORS = {
   create: theme.blue,
   edit: theme.purple ?? theme.violet,
   delete: theme.red,
-  read: theme.lilac,
-  list: theme.lilac,
+  read: theme.cyan,
+  list: theme.cyan,
 };
 
 export class App {
