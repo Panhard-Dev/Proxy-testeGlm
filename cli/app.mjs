@@ -267,7 +267,7 @@ export class App {
         if (content.length) L('');
         if (m.role === 'tool') {
           const arrow = m.expanded ? '[-]' : '[+]';
-          L('   ' + theme.lilac(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), m);
+          L('   ' + theme.lilac(arrow + ' ' + safe(m.tool)) + (m.ok ? theme.muted('  ok') : theme.red('  erro')), { msg: m, kind: 'tool' });
           if (m.expanded) {
             if (m.detail) wrap(m.detail, cw - 6).forEach(l => L('   ' + l));
             if (m.output && m.output !== m.detail) L('   ' + theme.border('└') + theme.muted(' ' + m.output));
@@ -276,7 +276,14 @@ export class App {
         }
         const badge = m.role === 'user' ? theme.pink('VOCÊ') : theme.lilac(safe(m.model));
         L(badge);
-        if (m.reasoning) wrap('Raciocínio · ' + m.reasoning, cw - 5).forEach(l => L(theme.muted('   │ ' + l)));
+        if (m.reasoning) {
+          const arrow = m.thoughtOpen ? '[-]' : '[+]';
+          L('   ' + theme.muted(arrow + ' Pensamento') + theme.border(`  · ${String(m.reasoning.length)} caracteres`), { msg: m, kind: 'thought' });
+          if (m.thoughtOpen) {
+            wrap(m.reasoning, cw - 10).forEach(l => L('   ' + theme.border('│ ') + theme.muted(l)));
+            L('   ' + theme.border('╰────'));
+          }
+        }
         markdown(m.content || (this.busy && m === this.messages.at(-1) ? `${spinnerFrame()} Aguardando resposta…` : ''), cw - 5).forEach(l => L('     ' + l));
         if (m.error && m !== this.messages.at(-1)) wrap(errorSummary(m.error), cw - 5).forEach(l => L(theme.red('     ' + l)));
       }
@@ -299,7 +306,11 @@ export class App {
   }
   click(row, col) {
     for (const h of this.toolHits) {
-      if (h.row === row) { h.msg.expanded = !h.msg.expanded; this.changed(); return; }
+      if (h.row === row) {
+        if (h.kind === 'thought') h.msg.thoughtOpen = !h.msg.thoughtOpen;
+        else h.msg.expanded = !h.msg.expanded;
+        this.changed(); return;
+      }
     }
     for (const z of this.clickZones) {
       if (z.row === row && col >= z.x1 && col <= z.x2) { z.action(); this.changed(); return; }
@@ -338,14 +349,14 @@ export class App {
     }
     // começo de sequência ainda incompleto → mantém suprimindo
     const partial = /\x1b\[<$|\x1b\[<\d+$|\x1b\[<\d+;$|\x1b\[<\d+;\d+$/.test(this.mouseBuf) || /\x1b\[M?$/.test(this.mouseBuf);
+    clearTimeout(this._mouseFlush);
     if (mouse || partial) {
+      // suprime os keypresses deste chunk e libera o teclado logo em seguida
       this.suppressKeypress = true;
-      clearTimeout(this._mouseFlush);
-      if (!partial) {
-        this._mouseFlush = setTimeout(() => { this.mouseBuf = ''; this.suppressKeypress = false; }, 30);
-      }
-    } else if (this.mouseBuf) {
-      // não era mouse: devolve nada, só libera o teclado
+      this._mouseFlush = setTimeout(() => { this.mouseBuf = ''; this.suppressKeypress = false; }, mouse ? 30 : 150);
+      if (!partial) this.mouseBuf = '';
+    } else {
+      // chunk de teclado normal: libera na hora
       this.mouseBuf = '';
       this.suppressKeypress = false;
     }
