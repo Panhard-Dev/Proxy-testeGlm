@@ -143,8 +143,8 @@ function renderTable(rows, w) {
   const natural = header.map((h, ci) => Math.max(h.length, ...body.map(r => (r[ci] || '').length)));
   const widths = natural.map(n => Math.min(n, Math.max(5, Math.floor(avail / cols))));
   const cell = (c, ci, head) => {
-    const txt = fit(head ? bold(c) : c, widths[ci]);
-    return theme.border('│') + ' ' + txt + ' '.repeat(Math.max(0, widths[ci] - width(c))) + ' ';
+    const txt = fit(head ? bold(c) : c, widths[ci]); // fit já preenche até a largura
+    return theme.border('│') + ' ' + txt + ' ';
   };
   const line = (cells, head) => cells.map((c, ci) => cell(c, ci, head)).join('') + theme.border('│');
   const sep = theme.border('├' + widths.map(n => '─'.repeat(n + 2)).join('┼') + '┤');
