@@ -31,6 +31,8 @@ export class App {
     this.menu = null; this.sessionId = null; this.saved = []; this.histChoice = 0;
     this.stats = { requests: 0, prompt: 0, completion: 0, tools: 0, errors: 0, started: Date.now() };
     this.modelStats = new Map();
+    this.rss = 0; this.cpu = 0;
+    this._cpuBase = process.cpuUsage(); this._cpuAt = Date.now();
   }
   log(level, message) {
     this.logs.push({ level, text: `${new Date().toLocaleTimeString()} [${level.toUpperCase()}] ${safe(message).slice(0, 1000)}` });
@@ -53,6 +55,22 @@ export class App {
       }
     } finally { this.loading = false; this.choice = Math.max(0, this.models.indexOf(this.model)); this.changed(); }
   }
+  sampleProcess() {
+    const now = Date.now();
+    const dt = now - this._cpuAt;
+    if (dt < 400) return;
+    const delta = process.cpuUsage(this._cpuBase);
+    this.cpu = Math.max(0, Math.min(100, ((delta.user + delta.system) / 1000 / dt) * 100));
+    this._cpuBase = process.cpuUsage();
+    this._cpuAt = now;
+    this.rss = process.memoryUsage().rss;
+  }
+  fmtMb(bytes) { return (bytes / (1024 * 1024)).toFixed(1) + ' MB'; }
+  mins0(mins) { return mins < 1 ? 'menos de 1 min' : mins + ' min'; }
+  procBadge() {
+    this.sampleProcess();
+    return theme.muted('  |  ') + theme.lilac(`mem ${this.fmtMb(this.rss)} · cpu ${this.cpu.toFixed(1)}%`);
+  }
   menuItems() {
     if (!this.menu) return [];
     if (this.menu.mode === 'models') {
@@ -63,6 +81,7 @@ export class App {
       { cmd: 'models', desc: 'trocar de modelo', run: () => { this.menu = { mode: 'models', choice: 0 }; void this.refreshModels(); } },
       { cmd: 'new', desc: 'novo chat', run: () => { this.menu = null; this.reset(); } },
       { cmd: 'usage', desc: 'uso desta sessão', run: () => { this.menu = null; this.input = []; this.cursor = 0; this.screen = 'usage'; this.picker = false; } },
+      { cmd: 'status', desc: 'memória e cpu da CLI', run: () => { this.menu = null; this.input = []; this.cursor = 0; this.screen = 'status'; this.picker = false; } },
       { cmd: 'historico', desc: 'conversas salvas', run: () => { this.menu = null; this.input = []; this.cursor = 0; this.screen = 'history'; this.saved = loadHistory(); this.histChoice = 0; } },
       { cmd: 'quit', desc: 'sair', run: () => { this.quitRequested = true; } },
     ];
@@ -187,6 +206,9 @@ export class App {
     if (this.screen === 'usage') {
       if (n === 'escape' || n === 'tab' || n === 'return') { this.screen = 'chat'; this.changed(); return; }
     }
+    if (this.screen === 'status') {
+      if (n === 'escape' || n === 'tab' || n === 'return') { this.screen = 'chat'; this.changed(); return; }
+    }
     if (this.screen === 'history') {
       if (n === 'escape' || n === 'tab') { this.screen = 'chat'; this.changed(); return; }
       else if (n === 'up') this.histChoice = Math.max(0, this.histChoice - 1);
@@ -295,7 +317,7 @@ export class App {
     const put = (y, text = '') => { if (y >= 0 && y < rows) frame[y] = ' '.repeat(left) + fit(text, cw); };
     const pair = (a, b) => fit(a, Math.max(0, cw - width(b) - 2)) + '  ' + b;
     const nav = (this.tab === 0 ? theme.lilac : theme.muted)('Chat') + theme.border(' · ') +
-      (this.tab === 1 ? theme.lilac : theme.muted)('Logs');
+      (this.tab === 1 ? theme.lilac : theme.muted)('Logs') + this.procBadge();
     this.clickZones = [];
     this.clickZones = [];
     if (this.screen === 'usage') {
@@ -368,6 +390,33 @@ export class App {
       return finish();
     }
 
+    if (this.screen === 'status') {
+      this.sampleProcess();
+      put(0, pair(theme.lilac('Laizy CLI'), nav));
+      put(1, theme.border('─'.repeat(cw)));
+      const boxW = Math.min(52, cw - 8);
+      const up = Math.round((Date.now() - this.stats.started) / 60000);
+      const rowsData = [
+        ['Memória (RSS)', this.fmtMb(this.rss)],
+        ['CPU', this.cpu.toFixed(1) + '%'],
+        ['PID', String(process.pid)],
+        ['Sessão', `${mins0(up)}`],
+        ['Node.js', process.version],
+        ['Requisições', String(this.stats.requests)],
+        ['Tokens', String(this.stats.prompt + this.stats.completion)],
+      ];
+      let sy = 4;
+      put(sy, theme.pink('Status do processo'));
+      sy += 2;
+      rowsData.forEach(([label, value]) => {
+        put(sy, '   ' + theme.muted(fit(label + ':', 20)) + theme.lilac(fit(value, 24)));
+        sy += 1;
+      });
+      sy += 1;
+      put(sy, theme.muted('Esc/Tab voltar · os números são desta CLI'));
+      this.clickZones.push({ row: sy, x1: -50, x2: w + 50, action: () => { this.screen = 'chat'; } });
+      return finish();
+    }
     if (!landing || this.picker) {
       put(0, pair(theme.lilac('Laizy CLI'), nav));
       const mid = left + Math.floor(cw / 2);
