@@ -10,6 +10,7 @@ export const AGENT_SYSTEM = [
   'Você TEM ferramentas: use-as para executar comandos, ler, criar e editar arquivos — nunca peça para o usuário rodar algo ou colar saídas.',
   'Prefira várias chamadas curtas; confira o resultado de cada ação antes de responder.',
   'Ao terminar, responda de forma curta dizendo o que foi feito.',
+  'Destaque o que importa na resposta: use **negrito** em caminhos, nomes de arquivos, números e conclusões — nunca deixe informação importante em texto plano.',
 ].join(' ');
 
 export const BUILTIN_TOOLS = [

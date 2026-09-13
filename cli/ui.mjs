@@ -162,6 +162,8 @@ export function markdown(text, w) {
   // do wrap (width() ignora ANSI, então a quebra de linha continua correta).
   const inline = s => s
     .replace(/`([^`]+)`/g, (_, c) => theme.lilac(c))
+    .replace(/(?:\/)(?:[\w.@-]+\/)*[\w.@-]+/g, m => theme.cyan(m))
+    .replace(/\b[\w@.-]+\.(?:txt|md|js|mjs|ts|tsx|json|html|css|py|sh|log|env|yaml|yml|toml|csv)\b/gi, m => theme.cyan(m))
     .replace(/\*\*([^*]+)\*\*/g, (_, b) => bold(b));
   const lines = safe(text).split('\n');
   const out = [];
@@ -178,8 +180,9 @@ export function markdown(text, w) {
       out.push(...renderTable(rows, w));
       continue;
     }
+    const bullet = line.replace(/^(\s*)- /, '$1• ');
     const paint = /^#{1,6} /.test(line) ? theme.violet : s => s;
-    out.push(...wrap(inline(line), w).map(paint));
+    out.push(...wrap(inline(bullet), w).map(l => paint(l).replace(/^(\s*)• /, '$1' + theme.pink('• '))));
   }
   return out;
 }
