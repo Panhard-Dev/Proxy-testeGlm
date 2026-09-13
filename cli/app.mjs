@@ -57,13 +57,13 @@ export class App {
   }
   sampleProcess() {
     const now = Date.now();
+    this.rss = process.memoryUsage().rss; // memória é instantânea, sempre atualiza
     const dt = now - this._cpuAt;
     if (dt < 400) return;
     const delta = process.cpuUsage(this._cpuBase);
     this.cpu = Math.max(0, Math.min(100, ((delta.user + delta.system) / 1000 / dt) * 100));
     this._cpuBase = process.cpuUsage();
     this._cpuAt = now;
-    this.rss = process.memoryUsage().rss;
   }
   fmtMb(bytes) { return (bytes / (1024 * 1024)).toFixed(1) + ' MB'; }
   mins0(mins) { return mins < 1 ? 'menos de 1 min' : mins + ' min'; }
