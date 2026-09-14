@@ -2,7 +2,7 @@
 // Laizy terminal interface; adaptation attribution in ui.mjs.
 import readline from 'node:readline';
 import os from 'node:os';
-import { readFileSync, realpathSync, writeSync } from 'node:fs';
+import fs, { readFileSync, realpathSync, writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { OpenAIClient } from './client.mjs';
 import { bootstrap } from './bootstrap.mjs';
@@ -31,7 +31,7 @@ export class App {
     this.menu = null; this.sessionId = null; this.saved = []; this.histChoice = 0;
     this.stats = { requests: 0, prompt: 0, completion: 0, tools: 0, errors: 0, started: Date.now() };
     this.modelStats = new Map();
-    this.rss = 0; this.cpu = 0;
+    this.rss = 0; this.cpu = 0; this.proxyRss = 0; this.proxyProcs = 0;
     this._cpuBase = process.cpuUsage(); this._cpuAt = Date.now();
   }
   log(level, message) {
@@ -55,9 +55,45 @@ export class App {
       }
     } finally { this.loading = false; this.choice = Math.max(0, this.models.indexOf(this.model)); this.changed(); }
   }
+  /** Soma o RSS de todos os processos do proxy embutido: o node do servidor
+   *  e os Chromium headless que ele abre (identificados por serem descendentes
+   *  dele na árvore de processos). */
+  collectProxyStats() {
+    try {
+      const procs = new Map();
+      for (const d of fs.readdirSync('/proc')) {
+        if (!/^\d+$/.test(d)) continue;
+        try {
+          const stat = fs.readFileSync(`/proc/${d}/stat`, 'utf8');
+          const close = stat.lastIndexOf(')');
+          const rest = stat.slice(close + 2).split(' ');
+          let cmd = '';
+          try { cmd = fs.readFileSync(`/proc/${d}/cmdline`, 'utf8').split('\0').join(' '); } catch {}
+          procs.set(Number(d), { ppid: Number(rest[1]), rss: Number(rest[21]) * 4096, cmd });
+        } catch {}
+      }
+      const roots = [...procs.entries()]
+        .filter(([, p]) => /Lzcli\/proxy/.test(p.cmd) && !/headless_shell|chrome|chromium/.test(p.cmd))
+        .map(([pid]) => pid);
+      const seen = new Set();
+      let bytes = 0, count = 0;
+      const walk = (pid) => {
+        if (seen.has(pid)) return;
+        seen.add(pid);
+        const p = procs.get(pid);
+        if (!p) return;
+        bytes += p.rss; count++;
+        for (const [cpid, cp] of procs) if (cp.ppid === pid) walk(cpid);
+      };
+      roots.forEach(walk);
+      this.proxyRss = bytes;
+      this.proxyProcs = count;
+    } catch { this.proxyRss = 0; this.proxyProcs = 0; }
+  }
   sampleProcess() {
     const now = Date.now();
     this.rss = process.memoryUsage().rss; // memória é instantânea, sempre atualiza
+    this.collectProxyStats();
     const dt = now - this._cpuAt;
     if (dt < 400) return;
     const delta = process.cpuUsage(this._cpuBase);
@@ -69,7 +105,7 @@ export class App {
   mins0(mins) { return mins < 1 ? 'menos de 1 min' : mins + ' min'; }
   procBadge() {
     this.sampleProcess();
-    return theme.muted('  |  ') + theme.lilac(`mem ${this.fmtMb(this.rss)} · cpu ${this.cpu.toFixed(1)}%`);
+    return theme.muted('  |  ') + theme.lilac(`mem ${this.fmtMb(this.rss + this.proxyRss)} · cpu ${this.cpu.toFixed(1)}%`);
   }
   menuItems() {
     if (!this.menu) return [];
@@ -396,10 +432,13 @@ export class App {
       put(1, theme.border('─'.repeat(cw)));
       const boxW = Math.min(52, cw - 8);
       const up = Math.round((Date.now() - this.stats.started) / 60000);
+      const total = this.rss + this.proxyRss;
       const rowsData = [
-        ['Memória (RSS)', this.fmtMb(this.rss)],
-        ['CPU', this.cpu.toFixed(1) + '%'],
-        ['PID', String(process.pid)],
+        ['CLI (memória)', this.fmtMb(this.rss)],
+        ['Servidor local', `${this.fmtMb(this.proxyRss)} (${this.proxyProcs} processos)`],
+        ['TOTAL', this.fmtMb(total)],
+        ['CPU (desta CLI)', this.cpu.toFixed(1) + '%'],
+        ['PID da CLI', String(process.pid)],
         ['Sessão', up < 1 ? 'menos de 1 min' : up + ' min'],
         ['Node.js', process.version],
         ['Requisições', String(this.stats.requests)],
