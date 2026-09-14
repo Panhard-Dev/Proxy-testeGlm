@@ -45,9 +45,20 @@ export const wordmark = [
 export const reflection = wordmark.slice(-3).reverse().map((line, i) =>
   color(['111;73;139', '66;43;86', '32;24;43'][i])(line));
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-export const chars = text => [...segmenter.segment(text)].map(s => s.segment);
+const ASCII_ONLY = /^[\t\x20-\x7e]*$/;
+// fast path: texto ASCII nao precisa de segmentacao por grafema (era o maior
+// custo do render: Intl.Segmenter + 2 regexes unicode POR caractere)
+export const chars = text => (ASCII_ONLY.test(text) ? text.split('') : [...segmenter.segment(text)].map(s => s.segment));
 // ponytail: common terminal Unicode widths; ambiguous-width glyphs assume one cell.
+const widthCache = new Map();
 const cellWidth = ch => {
+  const cached = widthCache.get(ch);
+  if (cached !== undefined) return cached;
+  const r = computeCellWidth(ch);
+  widthCache.set(ch, r);
+  return r;
+};
+const computeCellWidth = ch => {
   if (/^[\p{Mark}\p{Cf}]+$/u.test(ch)) return 0;
   const n = ch.codePointAt(0);
   return /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(ch) ||
