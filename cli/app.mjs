@@ -145,8 +145,8 @@ export class App {
     this.abort = new AbortController();
     const started = Date.now();
     this.log('info', `POST /chat/completions model=${this.model}`);
-    const MAX_TURNS = 6;
-    let turn = 0;
+    const MAX_TURNS = 10;
+    let turn = 0, autoContinued = false;
     try {
       while (turn++ < MAX_TURNS) {
         this.stats.requests++;
@@ -178,7 +178,14 @@ export class App {
           this.changed();
         }
         const calls = [...pending.values()];
-        if (!calls.length && !sawTools) break; // resposta final de texto
+        if (!calls.length && !sawTools) {
+          if (!reply.content.trim() && !autoContinued) {
+            autoContinued = true;
+            this.agent.push({ role: 'user', content: 'Continue: responda ao usuario com o resultado.' });
+            continue;
+          }
+          break;
+        }
         // registra no histórico do modelo e executa cada ferramenta
         this.agent.push({
           role: 'assistant', content: reply.content || null,
@@ -571,6 +578,7 @@ export class App {
           }
           continue;
         }
+        if (m.role === 'assistant' && !m.content && !m.reasoning && !m.error && !(this.busy && m === this.messages.at(-1))) continue;
         const badge = m.role === 'user' ? theme.pink('VOCÊ') : theme.lilac(safe(m.model));
         L(badge);
         if (m.reasoning) {

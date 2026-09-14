@@ -9,6 +9,8 @@ export const AGENT_SYSTEM = [
   'Você é o Laizy, um agente que age direto no terminal do usuário.',
   'Você TEM ferramentas: use-as para executar comandos, ler, criar e editar arquivos — nunca peça para o usuário rodar algo ou colar saídas.',
   'Prefira várias chamadas curtas; confira o resultado de cada ação antes de responder.',
+  'Para editar um arquivo existente use edit_file (trecho exato) em vez de reescrever tudo.',
+  'Nunca termine em silêncio: depois de usar as ferramentas, escreva uma resposta final curta ao usuário.',
   'Ao terminar, responda de forma curta dizendo o que foi feito.',
   'Destaque o que importa na resposta: use **negrito** em caminhos, nomes de arquivos, números e conclusões — nunca deixe informação importante em texto plano.',
 ].join(' ');
@@ -50,6 +52,22 @@ export const BUILTIN_TOOLS = [
         type: 'object',
         properties: { path: { type: 'string', description: 'Caminho do arquivo' } },
         required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description: 'Edita um arquivo existente substituindo um trecho exato por outro (só a primeira ocorrencia). Prefira esta ferramenta em vez de reescrever o arquivo inteiro.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Caminho do arquivo' },
+          old_string: { type: 'string', description: 'Trecho exato a substituir (precisa existir no arquivo)' },
+          new_string: { type: 'string', description: 'Novo conteudo que entra no lugar' },
+        },
+        required: ['path', 'old_string', 'new_string'],
       },
     },
   },
@@ -134,6 +152,19 @@ export async function executeTool(name, argsJson, { cwd, signal } = {}) {
         .slice(0, 300)
         .map(e => e.isDirectory() ? e.name + '/' : e.name);
       return { ok: true, kind: 'list', text: `${dir}\n` + (entries.join('\n') || '(vazio)'), detail: dir, summary: `listou ${path.basename(dir)} (${entries.length} itens)` };
+    }
+
+    if (name === 'edit_file') {
+      const file = resolveSafe(String(args.path || ''), cwd);
+      const oldString = String(args.old_string ?? '');
+      const newString = String(args.new_string ?? '');
+      const content = fs.readFileSync(file, 'utf8');
+      if (!content.includes(oldString)) {
+        return { ok: false, kind: 'edit', text: `Erro: o trecho a substituir nao foi encontrado em ${file}. Verifique se copiou exatamente (espacos, quebras de linha).`, detail: file, summary: `trecho nao encontrado em ${path.basename(file)}` };
+      }
+      const updated = content.replace(oldString, newString);
+      fs.writeFileSync(file, updated);
+      return { ok: true, kind: 'edit', text: `Trecho substituido em ${file} (${oldString.length} -> ${newString.length} caracteres).`, detail: file, summary: `editou ${path.basename(file)}` };
     }
 
     if (name === 'delete_file') {
